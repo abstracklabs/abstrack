@@ -1,0 +1,12 @@
+**/.git
+**/.next
+**/node_modules
+**/dist
+**/__pycache__
+**/*.pyc
+**/.env
+**/.env.*
+!**/.env.example
+**/coverage
+**/*.log
+**/turbo

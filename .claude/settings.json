@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "additionalDirectories": [
+      "C:\\Users\\NFC\\Downloads\\abstrack"
+    ],
+    "allow": [
+      "Bash(wc -l /c/Users/NFC/Downloads/abstrack/apps/web/src/components/graphs/*.tsx)"
+    ]
+  }
+}

@@ -1,0 +1,24 @@
+[build]
+builder    = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+startCommand  = "node dist/server.js"
+healthcheckPath    = "/healthz"
+healthcheckTimeout = 30
+restartPolicyType  = "ON_FAILURE"
+restartPolicyMaxRetries = 5
+
+[[deploy.environmentVariables]]
+# Ces variables sont définies dans le dashboard Railway, pas ici.
+# Liste de référence — toutes sont requises sauf celles avec valeur par défaut.
+#
+# DATABASE_URL       → copier depuis le plugin PostgreSQL (Railway l'injecte automatiquement)
+# JWT_SECRET         → générer : openssl rand -hex 32
+# ADMIN_SECRET       → générer : openssl rand -hex 32
+# CORS_ORIGIN        → URL Vercel de ton frontend (ex: https://abstrack.vercel.app)
+# PORT               → 3001 (Railway expose automatiquement $PORT)
+# NODE_ENV           → production
+# LOG_LEVEL          → info
+# ALPHA_WHALE_ETH    → 5
+# ALPHA_BURST_SALES  → 10

@@ -1,0 +1,18 @@
+[build]
+builder        = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+startCommand        = "python main.py"
+restartPolicyType   = "ON_FAILURE"
+restartPolicyMaxRetries = 10
+
+[[deploy.environmentVariables]]
+# Ces variables sont définies dans le dashboard Railway, pas ici.
+# Liste de référence — toutes sont requises.
+#
+# DATABASE_URL       → copier depuis le plugin PostgreSQL (Railway l'injecte automatiquement)
+# ABSTRACT_RPC_WSS   → wss://... (nœud Abstract — Chainstack, Alchemy, etc.)
+# ABSTRACT_RPC_HTTP  → https://... (même nœud)
+# LOG_FORMAT         → json
+# LOG_LEVEL          → info

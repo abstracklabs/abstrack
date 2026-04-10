@@ -1,0 +1,13 @@
+{
+  // Associe les fichiers SQL du projet à PostgreSQL (pas MSSQL)
+  // Supprime les faux positifs du linter T-SQL sur du SQL PostgreSQL valide
+  "files.associations": {
+    "database/**/*.sql": "sql"
+  },
+  "[sql]": {
+    "editor.defaultFormatter": null
+  },
+  // Désactive la validation MSSQL sur les fichiers SQL de migrations
+  "mssql.enableSqlAuthentication": false,
+  "sqltools.useNodeRuntime": false
+}
