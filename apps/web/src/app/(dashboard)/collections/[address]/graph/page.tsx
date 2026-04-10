@@ -1,27 +1,48 @@
 'use client'
 
-import { useState }            from 'react'
-import { useRouter }           from 'next/navigation'
-import {
-  TransactionGraph,
-  MoneyFlowSankey,
-  WalletClusters,
-  HeatmapCalendar,
-  HolderDistribution,
-} from '../../../../../components/graphs'
-import type { GraphNode }      from '../../../../../components/graphs'
+import { useState }        from 'react'
+import { useRouter }       from 'next/navigation'
+import dynamic             from 'next/dynamic'
+import type { GraphNode }  from '../../../../../components/graphs'
+
+// ─── Dynamic imports (all components use d3 — load client-side only) ─────────
+
+const MoneyFlowSankey = dynamic(
+  () => import('../../../../../components/graphs/MoneyFlowSankey').then(m => ({ default: m.MoneyFlowSankey })),
+  { ssr: false, loading: () => <GraphLoader /> },
+)
+const TransactionGraph = dynamic(
+  () => import('../../../../../components/graphs/TransactionGraph').then(m => ({ default: m.TransactionGraph })),
+  { ssr: false, loading: () => <GraphLoader /> },
+)
+const WalletClusters = dynamic(
+  () => import('../../../../../components/graphs/WalletClusters').then(m => ({ default: m.WalletClusters })),
+  { ssr: false, loading: () => <GraphLoader /> },
+)
+const HeatmapCalendar = dynamic(
+  () => import('../../../../../components/graphs/HeatmapCalendar').then(m => ({ default: m.HeatmapCalendar })),
+  { ssr: false, loading: () => <GraphLoader /> },
+)
+const HolderDistribution = dynamic(
+  () => import('../../../../../components/graphs/HolderDistribution').then(m => ({ default: m.HolderDistribution })),
+  { ssr: false, loading: () => <GraphLoader /> },
+)
+
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 type View = 'flow' | 'transactions' | 'clusters' | 'heatmap' | 'holders'
 
 const VIEWS: Array<{ id: View; label: string; description: string }> = [
-  { id: 'flow',         label: 'Money Flow',       description: 'ETH flows between wallets, collections and marketplaces' },
-  { id: 'transactions', label: 'Transaction Graph', description: 'Force-directed wallet relationship map' },
-  { id: 'clusters',     label: 'Wallet Clusters',   description: 'Smart money vs regular buyers — DBSCAN clustering' },
-  { id: 'heatmap',      label: 'Activity Heatmap',  description: 'Volume and sales activity over the last 52 weeks' },
+  { id: 'flow',         label: 'Money Flow',         description: 'ETH flows between wallets, collections and marketplaces' },
+  { id: 'transactions', label: 'Transaction Graph',  description: 'Force-directed wallet relationship map' },
+  { id: 'clusters',     label: 'Wallet Clusters',    description: 'Smart money vs regular buyers — DBSCAN clustering' },
+  { id: 'heatmap',      label: 'Activity Heatmap',   description: 'Volume and sales activity over the last 52 weeks' },
   { id: 'holders',      label: 'Holder Distribution', description: 'Token concentration — Treemap and Lorenz curve' },
 ]
 
 interface Params { params: { address: string } }
+
+// ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function CollectionGraphPage({ params }: Params) {
   const addr   = params.address
@@ -51,7 +72,6 @@ export default function CollectionGraphPage({ params }: Params) {
           <p className="text-sm text-[var(--text-muted)]">{activeView.description}</p>
         </div>
 
-        {/* Controls contextuels */}
         {view === 'transactions' && selectedNode && (
           <div className="glass rounded-xl border border-[var(--border)] px-4 py-3 text-sm">
             <p className="text-[var(--text-muted)] text-xs mb-1">Selected wallet</p>
@@ -131,6 +151,16 @@ export default function CollectionGraphPage({ params }: Params) {
 
       {/* Insights panel */}
       <InsightsPanel view={view} address={addr} />
+    </div>
+  )
+}
+
+// ─── Loading placeholder ──────────────────────────────────────────────────────
+
+function GraphLoader() {
+  return (
+    <div className="flex items-center justify-center h-[500px] text-[var(--text-muted)] text-sm animate-pulse">
+      Loading visualization…
     </div>
   )
 }
