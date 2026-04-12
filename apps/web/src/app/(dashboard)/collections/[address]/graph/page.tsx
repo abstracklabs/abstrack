@@ -3,7 +3,7 @@
 import { useState }        from 'react'
 import { useRouter }       from 'next/navigation'
 import dynamic             from 'next/dynamic'
-import type { GraphNode }  from '../../../../../components/graphs'
+import type { GraphNode }  from '../../../../../components/graphs/types'
 
 // ─── Dynamic imports (all components use d3 — load client-side only) ─────────
 
