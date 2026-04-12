@@ -10,3 +10,10 @@
 **/coverage
 **/*.log
 **/turbo
+# Exclude frontend and packages — Railway builds backend only
+apps/
+packages/
+indexer/
+scripts/
+infra/
+database/
