@@ -1,12 +1,10 @@
 {
   "name": "abstrack",
   "private": true,
-  "workspaces": [
-    "apps/*"
-  ],
   "scripts": {
+    "build":       "cd backend && npm install && npm run build",
+    "start":       "node backend/dist/server.js",
     "dev":         "cd apps/web && npm run dev",
-    "build":       "cd apps/web && npm run build",
     "docker:up":   "docker compose up -d",
     "docker:down": "docker compose down",
     "docker:logs": "docker compose logs -f"

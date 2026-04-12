@@ -2,7 +2,7 @@ import { useEffect } from 'react'
 import { useQuery }  from '@tanstack/react-query'
 import { useCollectionStore } from '../../store/collections'
 import { socket } from '../socket'
-import type { CollectionStats, NFTSale } from '@abstrack/types'
+import type { CollectionStats, NFTSale } from '../types'
 
 const API = process.env.NEXT_PUBLIC_API_URL
 

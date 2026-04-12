@@ -22,6 +22,21 @@ export interface WalletActivityData {
   timestamp:   number
 }
 
+export interface CollectionStats {
+  collection:       string
+  floorEth:         number
+  floorUsd:         number
+  volume24hUsd:     number
+  volume7dUsd:      number
+  sales24h:         number
+  uniqueBuyers24h:  number
+  holderCount:      number
+  listingCount:     number
+  change24hPct:     number
+}
+
+export type NFTSale = SaleData
+
 // ─── Données REST API ──────────────────────────────────────────────────────
 
 export interface CollectionRow {
