@@ -36,14 +36,36 @@ export async function collectionsRoutes(app: FastifyInstance) {
   })
 
   // GET /collections/:address
-  // Pas de cache — lookup par clé primaire, déjà O(1) via index
+  // Holder count : delta method (to_addr +1 / from_addr -1) — exclut le zero address
+  // Total sales  : COUNT(*) all-time sur nft_sales
+  // Cache 30s — holder_count est coûteux mais pas critique à la seconde
   app.get<{ Params: { address: string } }>('/:address', async (req, reply) => {
     const addr = req.params.address.toLowerCase()
     const row  = await db.queryOne(
-      `SELECT address, name, symbol, total_supply,
-              floor_price_eth, volume_24h_eth, sales_count_24h, thumbnail_url, created_at
-       FROM collections WHERE address = $1`,
-      [addr]
+      `WITH holders AS (
+         SELECT COUNT(*) AS holder_count
+         FROM (
+           SELECT addr
+           FROM (
+             SELECT to_addr   AS addr,  1 AS delta FROM nft_transfers WHERE collection_addr = $1
+             UNION ALL
+             SELECT from_addr AS addr, -1 AS delta FROM nft_transfers WHERE collection_addr = $1
+           ) t
+           WHERE addr != $2
+           GROUP BY addr
+           HAVING SUM(delta) > 0
+         ) h
+       ),
+       totals AS (
+         SELECT COUNT(*) AS total_sales FROM nft_sales WHERE collection_addr = $1
+       )
+       SELECT c.address, c.name, c.symbol, c.total_supply,
+              c.floor_price_eth, c.volume_24h_eth, c.sales_count_24h, c.thumbnail_url, c.created_at,
+              h.holder_count::int,
+              t.total_sales::int
+       FROM collections c, holders h, totals t
+       WHERE c.address = $1`,
+      [addr, '0x' + '0'.repeat(40)]
     )
     if (!row) return reply.status(404).send({ error: 'Not found' })
     return row

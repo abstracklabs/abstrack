@@ -77,8 +77,8 @@ export default function CollectionPage({ params }: Params) {
         <StatCard label="Floor"      value={stats?.floor_price_eth ? `${Number(stats.floor_price_eth).toFixed(4)} ETH` : '—'} change={stats?.change_24h_pct} loading={isLoading} accent="blue" />
         <StatCard label="Volume 24h" value={stats?.volume_24h_eth   ? `${Number(stats.volume_24h_eth).toFixed(2)} ETH` : '—'} loading={isLoading} accent="purple" />
         <StatCard label="Sales 24h"  value={stats?.sales_count_24h ?? '—'} loading={isLoading} />
-        <StatCard label="Holders"    value={stats?.holder_count ?? '—'}     loading={isLoading} />
-        <StatCard label="Listed"     value={stats?.listing_count ?? '—'}    loading={isLoading} />
+        <StatCard label="Holders"     value={stats?.holder_count ?? '—'}  loading={isLoading} />
+        <StatCard label="Total Sales" value={stats?.total_sales ?? '—'}   loading={isLoading} />
       </div>
 
       {/* Chart + live feed */}
