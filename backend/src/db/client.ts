@@ -32,8 +32,7 @@ class Database {
       connectionTimeoutMillis: 5_000,
       statement_timeout:       QUERY_TIMEOUT,
       application_name:        'abstrack-backend',
-      ssl:    { rejectUnauthorized: false },
-      family: 4,   // force IPv4 — Railway ne supporte pas IPv6 en sortie
+      ssl: { rejectUnauthorized: false },
     })
 
     this.pool.on('error', (err) => {
