@@ -32,6 +32,9 @@ class Database {
       connectionTimeoutMillis: 5_000,
       statement_timeout:       QUERY_TIMEOUT,
       application_name:        'abstrack-backend',
+      ssl: process.env.NODE_ENV === 'production'
+        ? { rejectUnauthorized: false }
+        : false,
     })
 
     this.pool.on('error', (err) => {
