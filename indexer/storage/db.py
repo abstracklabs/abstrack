@@ -176,10 +176,11 @@ class Database:
 
     # ─── Collections ─────────────────────────────────────────────────────────
 
-    async def upsert_collection(self, address: str) -> None:
+    async def upsert_collection(self, address: str) -> bool:
+        """Insère une collection. Retourne True si c'est une nouvelle collection."""
         async def _do():
             async with self._pool.acquire() as conn:
-                await conn.execute(
+                result = await conn.execute(
                     """
                     INSERT INTO collections (address)
                     VALUES ($1)
@@ -187,7 +188,32 @@ class Database:
                     """,
                     address.lower(),
                 )
-        await _with_retry(_do)
+                return result == "INSERT 0 1"
+        return bool(await _with_retry(_do))
+
+    async def get_unnamed_collections(self) -> list[str]:
+        """Retourne les adresses des collections sans nom (pour backfill au démarrage)."""
+        async with self._pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT address FROM collections WHERE name IS NULL OR name = '' LIMIT 200"
+            )
+        return [r["address"] for r in rows]
+
+    async def update_collection_meta(self, address: str, name: str, symbol: str) -> None:
+        """Met à jour le nom et symbole d'une collection."""
+        async def _do():
+            async with self._pool.acquire() as conn:
+                await conn.execute(
+                    """
+                    UPDATE collections SET name = $2, symbol = $3
+                    WHERE address = $1 AND (name IS NULL OR name = '')
+                    """,
+                    address.lower(), name, symbol,
+                )
+        try:
+            await _with_retry(_do)
+        except Exception as e:
+            logger.warning(f"update_collection_meta failed for {address}: {e!r}")
 
     # ─── NFT Sales ───────────────────────────────────────────────────────────
 

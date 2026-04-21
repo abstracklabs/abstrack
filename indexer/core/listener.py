@@ -81,6 +81,10 @@ class LiveListener:
         # Catchup via HTTP — plus fiable pour les grandes plages
         w3_http = AsyncWeb3(AsyncHTTPProvider(self.rpc_http))
         logger.info("Connected to Abstract node (HTTP)")
+
+        # Résout les noms des collections déjà dans la DB sans nom
+        await self._backfill_collection_names(w3_http)
+
         await self._catchup(w3_http)
 
         # Live via WebSocket — push temps réel
@@ -104,6 +108,21 @@ class LiveListener:
                 raw_num = header.get("number", "0x0")
                 block_num = int(raw_num, 16) if isinstance(raw_num, str) else int(raw_num)
                 await self._process_block(w3, block_num)
+
+    # ─── Résolution des noms au démarrage ────────────────────────────────────
+
+    async def _backfill_collection_names(self, w3: AsyncWeb3) -> None:
+        """Résout name/symbol pour les collections sans nom dans la DB."""
+        try:
+            unnamed = await self.db.get_unnamed_collections()
+            if not unnamed:
+                return
+            logger.info(f"Resolving names for {len(unnamed)} collections without metadata")
+            for addr in unnamed:
+                await self._resolve_collection_meta(w3, addr)
+                await asyncio.sleep(0.05)  # ~20 req/s max — évite de saturer le RPC
+        except Exception as e:
+            logger.warning(f"Backfill collection names failed: {e!r}")
 
     # ─── Rattrapage ───────────────────────────────────────────────────────────
 
@@ -156,7 +175,7 @@ class LiveListener:
             eth_usd  = await self._get_eth_price()
 
             for log in raw_logs:
-                await self._handle_log(dict(log), block_num, block_ts, eth_usd)
+                await self._handle_log(dict(log), block_num, block_ts, eth_usd, w3)
 
         await self.db.save_checkpoint(block_num)
         await self.db.mark_range_processed(block_num, block_num)
@@ -180,7 +199,7 @@ class LiveListener:
 
     # ─── Traitement d'un log individuel ──────────────────────────────────────
 
-    async def _handle_log(self, log: dict, block_num: int, block_ts: datetime, eth_usd: float):
+    async def _handle_log(self, log: dict, block_num: int, block_ts: datetime, eth_usd: float, w3_ref: AsyncWeb3 = None):
         try:
             result = decode_nft_log(log, block_num, block_ts, eth_usd)
         except Exception as e:
@@ -193,18 +212,57 @@ class LiveListener:
         try:
             kind = result["kind"]
             if kind == "sale":
-                await self.db.upsert_collection(result["collection_addr"])
+                is_new = await self.db.upsert_collection(result["collection_addr"])
+                if is_new:
+                    await self._resolve_collection_meta(w3_ref, result["collection_addr"])
                 inserted = await self.db.insert_sale(result)
                 if inserted:
                     logger.debug(f"Sale inserted: {result['tx_hash']} — {result['price_eth']:.3f} ETH")
             elif kind == "transfer":
-                await self.db.upsert_collection(result["collection_addr"])
+                is_new = await self.db.upsert_collection(result["collection_addr"])
+                if is_new:
+                    await self._resolve_collection_meta(w3_ref, result["collection_addr"])
                 await self.db.insert_transfer(result)
         except Exception as e:
             logger.error(
                 f"DB insert error (block {block_num}, tx {log.get('transactionHash')}): {e!r}"
             )
             # On logue et on continue — un log raté ne doit pas bloquer le bloc
+
+    # ─── Résolution nom/symbole ERC-721 ──────────────────────────────────────
+
+    async def _resolve_collection_meta(self, w3: AsyncWeb3, address: str) -> None:
+        """
+        Appelle name() et symbol() sur le contrat ERC-721.
+        Sélecteurs ABI : name()=0x06fdde03, symbol()=0x95d89b41
+        Ne bloque jamais — toute erreur est ignorée silencieusement.
+        """
+        if not w3:
+            return
+        try:
+            name   = await self._eth_call_string(w3, address, "0x06fdde03")
+            symbol = await self._eth_call_string(w3, address, "0x95d89b41")
+            if name or symbol:
+                await self.db.update_collection_meta(address, name or "", symbol or "")
+                logger.info(f"Collection meta resolved: {address} → {name!r} ({symbol!r})")
+        except Exception as e:
+            logger.debug(f"Could not resolve meta for {address}: {e!r}")
+
+    async def _eth_call_string(self, w3: AsyncWeb3, address: str, selector: str) -> str:
+        """Fait un eth_call et décode le retour comme une string ABI-encodée."""
+        from eth_abi import decode as abi_decode
+        try:
+            result = await asyncio.wait_for(
+                w3.eth.call({"to": address, "data": selector}),
+                timeout=3.0,
+            )
+            if not result or result == b"":
+                return ""
+            # Decode ABI string (offset + length + data)
+            decoded = abi_decode(["string"], result)
+            return decoded[0][:128]  # max 128 chars
+        except Exception:
+            return ""
 
     # ─── Prix ETH/USD ─────────────────────────────────────────────────────────
 
