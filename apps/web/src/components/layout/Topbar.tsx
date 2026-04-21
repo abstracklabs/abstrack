@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import Link         from 'next/link'
 import { useRouter } from 'next/navigation'
-import { useLiveSales } from '../live/LiveSalesFeed'
+import { useLiveSales } from '../../lib/hooks/useRealtime'
 
 export function Topbar() {
   const [query, setQuery] = useState('')
@@ -114,5 +114,3 @@ function BellIcon() {
   )
 }
 
-// Re-export pour le Topbar
-export { useLiveSales }

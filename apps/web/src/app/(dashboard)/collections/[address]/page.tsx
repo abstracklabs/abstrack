@@ -1,5 +1,6 @@
 'use client'
 
+import { use }              from 'react'
 import { useQuery }         from '@tanstack/react-query'
 import { FloorChart }       from '../../../../components/charts/FloorChart'
 import { LiveSalesFeed }    from '../../../../components/live/LiveSalesFeed'
@@ -10,10 +11,10 @@ import { useLiveSales }     from '../../../../lib/hooks/useRealtime'
 
 const API = process.env.NEXT_PUBLIC_API_URL
 
-interface Params { params: { address: string } }
+interface Params { params: Promise<{ address: string }> }
 
 export default function CollectionPage({ params }: Params) {
-  const addr = params.address
+  const { address: addr } = use(params)
 
   const { data: stats, isLoading } = useQuery({
     queryKey: ['collection', addr],

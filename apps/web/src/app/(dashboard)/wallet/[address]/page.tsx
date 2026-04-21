@@ -1,5 +1,6 @@
 'use client'
 
+import { use }             from 'react'
 import { useQuery }        from '@tanstack/react-query'
 import { StatCard }        from '../../../../components/ui/StatCard'
 import { DataTable }       from '../../../../components/ui/DataTable'
@@ -7,10 +8,10 @@ import { WalletActivity }  from '../../../../components/live/WalletActivity'
 
 const API = process.env.NEXT_PUBLIC_API_URL
 
-interface Params { params: { address: string } }
+interface Params { params: Promise<{ address: string }> }
 
 export default function WalletPage({ params }: Params) {
-  const addr = params.address
+  const { address: addr } = use(params)
 
   const { data: profile } = useQuery({
     queryKey: ['wallet', addr],

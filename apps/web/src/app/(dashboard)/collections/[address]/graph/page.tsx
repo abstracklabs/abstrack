@@ -1,6 +1,6 @@
 'use client'
 
-import { useState }        from 'react'
+import { useState, use }   from 'react'
 import { useRouter }       from 'next/navigation'
 import dynamic             from 'next/dynamic'
 import type { GraphNode }  from '../../../../../components/graphs/types'
@@ -40,12 +40,12 @@ const VIEWS: Array<{ id: View; label: string; description: string }> = [
   { id: 'holders',      label: 'Holder Distribution', description: 'Token concentration — Treemap and Lorenz curve' },
 ]
 
-interface Params { params: { address: string } }
+interface Params { params: Promise<{ address: string }> }
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function CollectionGraphPage({ params }: Params) {
-  const addr   = params.address
+  const { address: addr } = use(params)
   const router = useRouter()
   const [view, setView] = useState<View>('flow')
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null)
