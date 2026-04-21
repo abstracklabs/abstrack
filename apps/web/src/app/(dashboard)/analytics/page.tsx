@@ -145,12 +145,21 @@ function LeaderboardRow({
       className="flex items-center gap-3 px-4 py-3 hover:bg-white/[0.04] transition-colors"
     >
       <span className="text-xs text-[var(--text-muted)] tabular-nums w-4">{rank}</span>
-      <div
-        className="h-7 w-7 rounded-lg shrink-0 flex items-center justify-center text-[10px] font-bold text-white/70"
-        style={{ background: `hsl(${hue}deg 60% 25%)` }}
-      >
-        {(row.name || row.address).slice(0, 2).toUpperCase()}
-      </div>
+      {row.thumbnail_url ? (
+        <img
+          src={row.thumbnail_url}
+          alt={row.name ?? ''}
+          className="h-7 w-7 rounded-lg object-cover shrink-0"
+          onError={e => { (e.target as HTMLImageElement).style.display = 'none' }}
+        />
+      ) : (
+        <div
+          className="h-7 w-7 rounded-lg shrink-0 flex items-center justify-center text-[10px] font-bold text-white/70"
+          style={{ background: `hsl(${hue}deg 60% 25%)` }}
+        >
+          {(row.name || row.address).slice(0, 2).toUpperCase()}
+        </div>
+      )}
       <span className="flex-1 text-sm text-white truncate">
         {row.name || `${row.address.slice(0, 8)}…`}
       </span>
