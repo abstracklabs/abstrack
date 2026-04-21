@@ -1,6 +1,7 @@
 'use client'
 
 import { useWalletActivity } from '../../lib/hooks/useRealtime'
+import { useCollectionNames } from '../../lib/hooks/useCollectionNames'
 import type { WalletActivityData } from '../../lib/types'
 
 const ACTION_STYLES: Record<string, { color: string; label: string }> = {
@@ -46,6 +47,7 @@ export function WalletActivity({ address, maxItems = 20 }: Props) {
 function ActivityRow({ event, isNew }: { event: WalletActivityData; isNew: boolean }) {
   const style   = ACTION_STYLES[event.action] ?? ACTION_STYLES.transfer
   const timeAgo = formatTime(event.timestamp)
+  const { getCollectionName } = useCollectionNames()
 
   return (
     <div className={`
@@ -61,7 +63,7 @@ function ActivityRow({ event, isNew }: { event: WalletActivityData; isNew: boole
       {/* NFT info */}
       <div className="flex-1 min-w-0">
         <p className="text-sm text-white truncate">
-          {event.collection.slice(0, 10)}...
+          {getCollectionName(event.collection)}
           <span className="text-white/40 ml-1">#{event.tokenId}</span>
         </p>
         <p className="text-xs text-white/30">{timeAgo}</p>

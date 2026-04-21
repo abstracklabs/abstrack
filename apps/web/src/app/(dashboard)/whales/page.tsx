@@ -1,9 +1,11 @@
 'use client'
 
 import { useWhaleAlerts } from '../../../lib/hooks/useRealtime'
+import { useCollectionNames } from '../../../lib/hooks/useCollectionNames'
 
 export default function WhalesPage() {
   const alerts = useWhaleAlerts(50)
+  const { getCollectionName } = useCollectionNames()
 
   return (
     <div className="space-y-5 max-w-[900px]">
@@ -28,7 +30,7 @@ export default function WhalesPage() {
                 <div className="text-sm text-white font-medium font-mono">
                   {a.wallet.slice(0, 8)}…{a.wallet.slice(-6)}
                 </div>
-                <div className="text-xs text-[var(--text-muted)]">{a.collection.slice(0, 8)}…</div>
+                <div className="text-xs text-[var(--text-muted)]">{getCollectionName(a.collection)}</div>
               </div>
             </div>
             <div className="text-right">

@@ -5,6 +5,7 @@ import { useQuery }        from '@tanstack/react-query'
 import { StatCard }        from '../../../../components/ui/StatCard'
 import { DataTable }       from '../../../../components/ui/DataTable'
 import { WalletActivity }  from '../../../../components/live/WalletActivity'
+import { useCollectionNames } from '../../../../lib/hooks/useCollectionNames'
 
 const API = process.env.NEXT_PUBLIC_API_URL
 
@@ -41,6 +42,9 @@ export default function WalletPage({ params }: Params) {
   const totalPnl      = pnl?.total_eth ?? 0
   const isProfitable  = totalPnl >= 0
   const labels        = profile?.labels ?? []
+  const { getCollectionName } = useCollectionNames()
+  const portfolioColumns = usePortfolioColumns(getCollectionName)
+  const pnlColumns       = usePnlColumns(getCollectionName)
 
   return (
     <div className="space-y-6 max-w-[1400px]">
@@ -112,7 +116,7 @@ export default function WalletPage({ params }: Params) {
             </span>
           </div>
           <DataTable
-            columns={PORTFOLIO_COLUMNS}
+            columns={portfolioColumns}
             data={portfolio ?? []}
             keyFn={(r: any) => r.collection + r.token_id}
             loading={!portfolio}
@@ -131,7 +135,7 @@ export default function WalletPage({ params }: Params) {
           <h2 className="text-sm font-semibold text-white">PnL by Collection</h2>
         </div>
         <DataTable
-          columns={PNL_COLUMNS}
+          columns={pnlColumns}
           data={activity ?? []}
           keyFn={(r: any) => r.tx_hash}
           loading={!activity}
@@ -163,67 +167,70 @@ function LabelBadge({ label }: { label: string }) {
 
 // ─── Table columns ─────────────────────────────────────────────────────────
 
-const PORTFOLIO_COLUMNS = [
-  {
-    key: 'nft', header: 'NFT',
-    render: (r: any) => (
-      <div className="flex items-center gap-3">
-        <div className="h-9 w-9 rounded-lg bg-gradient-to-br from-blue-600/40 to-purple-600/40 border border-white/10 shrink-0" />
-        <div>
-          <p className="text-sm text-white">{r.name || r.collection?.slice(0, 12) + '...'}</p>
-          <p className="text-xs font-mono text-[var(--text-muted)]">#{r.token_id}</p>
+function usePortfolioColumns(getCollectionName: (a: string) => string) {
+  return [
+    {
+      key: 'nft', header: 'NFT',
+      render: (r: any) => (
+        <div className="flex items-center gap-3">
+          <div className="h-9 w-9 rounded-lg bg-gradient-to-br from-blue-600/40 to-purple-600/40 border border-white/10 shrink-0" />
+          <div>
+            <p className="text-sm text-white">{r.name || getCollectionName(r.collection)}</p>
+            <p className="text-xs font-mono text-[var(--text-muted)]">#{r.token_id}</p>
+          </div>
         </div>
-      </div>
-    ),
-  },
-  {
-    key: 'cost', header: 'Cost Basis', align: 'right' as const,
-    render: (r: any) => (
-      <span className="font-mono text-sm text-[var(--text-muted)]">{r.cost_basis_eth?.toFixed(4)} ETH</span>
-    ),
-  },
-  {
-    key: 'floor', header: 'Floor Now', align: 'right' as const,
-    render: (r: any) => (
-      <span className="font-mono text-sm text-white">{r.floor_eth?.toFixed(4)} ETH</span>
-    ),
-  },
-  {
-    key: 'pnl', header: 'Unrealized PnL', align: 'right' as const,
-    render: (r: any) => {
-      const pnl = (r.floor_eth - r.cost_basis_eth)
-      return (
-        <span className={`font-mono text-sm font-semibold ${pnl >= 0 ? 'positive' : 'negative'}`}>
-          {pnl >= 0 ? '+' : ''}{pnl?.toFixed(4)} ETH
-        </span>
-      )
+      ),
     },
-  },
-]
+    {
+      key: 'cost', header: 'Cost Basis', align: 'right' as const,
+      render: (r: any) => (
+        <span className="font-mono text-sm text-[var(--text-muted)]">{r.cost_basis_eth?.toFixed(4)} ETH</span>
+      ),
+    },
+    {
+      key: 'floor', header: 'Floor Now', align: 'right' as const,
+      render: (r: any) => (
+        <span className="font-mono text-sm text-white">{r.floor_eth?.toFixed(4)} ETH</span>
+      ),
+    },
+    {
+      key: 'pnl', header: 'Unrealized PnL', align: 'right' as const,
+      render: (r: any) => {
+        const pnl = (r.floor_eth - r.cost_basis_eth)
+        return (
+          <span className={`font-mono text-sm font-semibold ${pnl >= 0 ? 'positive' : 'negative'}`}>
+            {pnl >= 0 ? '+' : ''}{pnl?.toFixed(4)} ETH
+          </span>
+        )
+      },
+    },
+  ]
+}
 
-const PNL_COLUMNS = [
-  {
-    key: 'action', header: 'Action',
-    render: (r: any) => {
-      const colors: Record<string, string> = {
-        buy: 'text-green-400', sell: 'text-red-400',
-        transfer: 'text-blue-400', mint: 'text-purple-400',
-      }
-      return (
-        <span className={`text-xs font-semibold uppercase ${colors[r.action] ?? 'text-white'}`}>
-          {r.action}
-        </span>
-      )
+function usePnlColumns(getCollectionName: (a: string) => string) {
+  return [
+    {
+      key: 'action', header: 'Action',
+      render: (r: any) => {
+        const colors: Record<string, string> = {
+          buy: 'text-green-400', sell: 'text-red-400',
+          transfer: 'text-blue-400', mint: 'text-purple-400',
+        }
+        return (
+          <span className={`text-xs font-semibold uppercase ${colors[r.action] ?? 'text-white'}`}>
+            {r.action}
+          </span>
+        )
+      },
     },
-  },
-  {
-    key: 'collection', header: 'Collection',
-    render: (r: any) => (
-      <a href={`/collections/${r.collection}`} className="text-xs font-mono text-blue-400 hover:text-blue-300">
-        {r.collection?.slice(0, 12)}...
-      </a>
-    ),
-  },
+    {
+      key: 'collection', header: 'Collection',
+      render: (r: any) => (
+        <a href={`/collections/${r.collection}`} className="text-xs font-mono text-blue-400 hover:text-blue-300">
+          {getCollectionName(r.collection)}
+        </a>
+      ),
+    },
   {
     key: 'value', header: 'Value', align: 'right' as const,
     render: (r: any) => (
@@ -241,4 +248,5 @@ const PNL_COLUMNS = [
       )
     },
   },
-]
+  ]
+}

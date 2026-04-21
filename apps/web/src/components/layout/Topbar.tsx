@@ -4,6 +4,7 @@ import { useState } from 'react'
 import Link         from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useLiveSales } from '../../lib/hooks/useRealtime'
+import { useCollectionNames } from '../../lib/hooks/useCollectionNames'
 
 export function Topbar() {
   const [query, setQuery] = useState('')
@@ -69,6 +70,7 @@ export function Topbar() {
 
 function LiveTicker() {
   const sales = useLiveSales(undefined, 10)
+  const { getCollectionName } = useCollectionNames()
 
   if (!sales.length) return (
     <div className="text-xs text-[var(--text-muted)]">Waiting for live data...</div>
@@ -82,7 +84,7 @@ function LiveTicker() {
         {items.map((sale, i) => (
           <span key={i} className="text-xs flex items-center gap-1.5 shrink-0">
             <span className="text-[var(--text-muted)]">
-              {sale.collection.slice(0, 8)}...
+              {getCollectionName(sale.collection)}
             </span>
             <span className="text-white font-mono">{sale.priceEth.toFixed(3)}ETH</span>
             <span className={sale.priceEth > 1 ? 'text-green-400' : 'text-[var(--text-muted)]'}>

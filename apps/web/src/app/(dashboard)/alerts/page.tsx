@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAlertsStore } from '../../../store/alerts'
+import { useCollectionNames } from '../../../lib/hooks/useCollectionNames'
 
 const API = process.env.NEXT_PUBLIC_API_URL
 
@@ -232,9 +233,7 @@ function AlertCard({
               </span>
             ))}
             {alert.collection && (
-              <span className="text-xs font-mono text-[var(--text-muted)] glass rounded px-2 py-0.5">
-                {alert.collection.slice(0, 10)}…
-              </span>
+              <CollectionNameBadge address={alert.collection} />
             )}
           </div>
 
@@ -535,9 +534,19 @@ function ChannelBadge({ channel }: { channel: Channel }) {
   )
 }
 
+function CollectionNameBadge({ address }: { address: string }) {
+  const { getCollectionName } = useCollectionNames()
+  return (
+    <span className="text-xs font-mono text-[var(--text-muted)] glass rounded px-2 py-0.5">
+      {getCollectionName(address)}
+    </span>
+  )
+}
+
 function TriggerRow({ trigger }: { trigger: any }) {
   const event = trigger.event ?? {}
   const icon  = event.type === 'whale_buy' ? '🐋' : event.type === 'volume_explosion' ? '⚡' : '🔥'
+  const { getCollectionName } = useCollectionNames()
   return (
     <div className="flex items-center gap-3 py-1.5">
       <span className="text-base">{icon}</span>
@@ -546,7 +555,7 @@ function TriggerRow({ trigger }: { trigger: any }) {
           {event.type === 'whale_buy'
             ? `${event.buyer?.slice(0, 8)}… bought ${event.price_eth?.toFixed(2)} ETH`
             : event.type === 'volume_explosion'
-            ? `Volume ×${event.ratio?.toFixed(1)} on ${event.collection?.slice(0, 10)}…`
+            ? `Volume ×${event.ratio?.toFixed(1)} on ${getCollectionName(event.collection)}`
             : `Trending mint — score ${event.trending_score?.toFixed(1)}`
           }
         </p>
