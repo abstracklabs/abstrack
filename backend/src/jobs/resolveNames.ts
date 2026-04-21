@@ -16,8 +16,42 @@ import { logger } from '../lib/logger'
 const RPC = process.env.ABSTRACT_RPC_HTTP ?? 'https://api.mainnet.abs.xyz'
 
 // ABI function selectors
-const SEL_NAME   = '0x06fdde03'
-const SEL_SYMBOL = '0x95d89b41'
+const SEL_NAME        = '0x06fdde03'
+const SEL_SYMBOL      = '0x95d89b41'
+const SEL_CONTRACT_URI = '0xe8a3d485'  // contractURI() — collection-level metadata
+
+const IPFS_GW = 'https://ipfs.io/ipfs/'
+
+function normalizeUri(uri: string): string | null {
+  if (!uri) return null
+  if (uri.startsWith('ipfs://')) return IPFS_GW + uri.slice(7)
+  if (uri.startsWith('http://') || uri.startsWith('https://')) return uri
+  if (uri.startsWith('data:')) return uri
+  return null
+}
+
+async function fetchContractImage(address: string): Promise<string | null> {
+  try {
+    const res = await ethCallString(address, SEL_CONTRACT_URI)
+    if (!res) return null
+    const metaUrl = normalizeUri(res)
+    if (!metaUrl) return null
+
+    let meta: any
+    if (metaUrl.startsWith('data:application/json;base64,')) {
+      meta = JSON.parse(Buffer.from(metaUrl.slice('data:application/json;base64,'.length), 'base64').toString())
+    } else if (metaUrl.startsWith('data:application/json,')) {
+      meta = JSON.parse(decodeURIComponent(metaUrl.slice('data:application/json,'.length)))
+    } else {
+      meta = await fetch(metaUrl, { signal: AbortSignal.timeout(5_000) }).then(r => r.json())
+    }
+
+    const img = meta?.image ?? meta?.image_url ?? meta?.image_details?.url ?? null
+    return img ? normalizeUri(img) : null
+  } catch {
+    return null
+  }
+}
 
 async function ethCallString(address: string, selector: string): Promise<string> {
   try {
@@ -73,13 +107,18 @@ export async function resolveCollectionNames(): Promise<void> {
         ethCallString(address, SEL_SYMBOL),
       ])
 
-      if (name || symbol) {
+      const thumbnail = await fetchContractImage(address)
+
+      if (name || symbol || thumbnail) {
         await db.query(
-          `UPDATE collections SET name = $1, symbol = $2
-           WHERE address = $3 AND (name IS NULL OR trim(name) = '')`,
-          [name, symbol || null, address]
+          `UPDATE collections
+           SET name = COALESCE(NULLIF($1, ''), name),
+               symbol = COALESCE($2, symbol),
+               thumbnail_url = COALESCE($3, thumbnail_url)
+           WHERE address = $4`,
+          [name || null, symbol || null, thumbnail, address]
         )
-        logger.info({ address: address.slice(0, 12), name, symbol }, 'Collection name resolved')
+        logger.info({ address: address.slice(0, 12), name, symbol, thumbnail: !!thumbnail }, 'Collection meta resolved')
         resolved++
       }
 

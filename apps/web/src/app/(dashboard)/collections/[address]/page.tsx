@@ -7,6 +7,7 @@ import { LiveSalesFeed }    from '../../../../components/live/LiveSalesFeed'
 import { LiveFloorTicker }  from '../../../../components/live/LiveFloorTicker'
 import { StatCard }         from '../../../../components/ui/StatCard'
 import { DataTable }        from '../../../../components/ui/DataTable'
+import { NFTImage }         from '../../../../components/ui/NFTImage'
 import { useLiveSales }     from '../../../../lib/hooks/useRealtime'
 
 const API = process.env.NEXT_PUBLIC_API_URL
@@ -40,7 +41,16 @@ export default function CollectionPage({ params }: Params) {
       {/* Header */}
       <div className="flex items-start justify-between">
         <div className="flex items-center gap-4">
-          <div className="h-14 w-14 rounded-2xl bg-gradient-to-br from-blue-500 to-purple-700 shadow-lg shadow-blue-500/20" />
+          {stats?.thumbnail_url ? (
+            <img
+              src={stats.thumbnail_url}
+              alt={stats.name ?? addr}
+              className="h-14 w-14 rounded-2xl object-cover shadow-lg"
+              onError={e => { (e.target as HTMLImageElement).style.display = 'none' }}
+            />
+          ) : (
+            <div className="h-14 w-14 rounded-2xl bg-gradient-to-br from-blue-500 to-purple-700 shadow-lg shadow-blue-500/20" />
+          )}
           <div>
             <h1 className="text-xl font-bold text-white">
               {stats?.name ?? (
@@ -103,7 +113,7 @@ export default function CollectionPage({ params }: Params) {
           </span>
         </div>
         <DataTable
-          columns={SALES_COLUMNS}
+          columns={salesColumns(addr)}
           data={allSales}
           keyFn={r => r.tx_hash || r.txHash}
         />
@@ -132,14 +142,19 @@ function PeriodSelector() {
 
 // ─── Sales table columns ──────────────────────────────────────────────────────
 
-const SALES_COLUMNS = [
+function salesColumns(collection: string) {
+  return [
   {
-    key: 'token', header: 'Token',
-    render: (r: any) => (
-      <span className="font-mono text-white text-xs">
-        #{r.token_id ?? r.tokenId}
-      </span>
-    ),
+    key: 'token', header: 'NFT',
+    render: (r: any) => {
+      const tokenId = r.token_id ?? r.tokenId
+      return (
+        <div className="flex items-center gap-2.5">
+          <NFTImage collection={collection} tokenId={tokenId} size={36} />
+          <span className="font-mono text-white text-xs">#{tokenId}</span>
+        </div>
+      )
+    },
   },
   {
     key: 'price', header: 'Price', align: 'right' as const,
@@ -170,7 +185,8 @@ const SALES_COLUMNS = [
       <TimeCell ts={r.timestamp ?? r.ts} />
     ),
   },
-]
+  ]
+}
 
 function AddressCell({ address }: { address: string }) {
   if (!address) return <span className="text-[var(--text-muted)]">—</span>

@@ -53,10 +53,20 @@ export default function CollectionsPage() {
               <tr key={c.address} className="border-b border-[var(--border)] hover:bg-white/3 transition-colors">
                 <td className="px-4 py-3 text-[var(--text-muted)]">{i + 1}</td>
                 <td className="px-4 py-3">
-                  <Link href={`/collections/${c.address}`} className="text-white hover:text-blue-400 transition-colors font-medium">
-                    {c.name || c.address.slice(0, 10) + '…'}
+                  <Link href={`/collections/${c.address}`} className="flex items-center gap-3 hover:opacity-80 transition-opacity">
+                    {c.thumbnail_url ? (
+                      <img src={c.thumbnail_url} alt={c.name ?? ''} className="h-8 w-8 rounded-lg object-cover shrink-0" onError={e => { (e.target as HTMLImageElement).style.display='none' }} />
+                    ) : (
+                      <div className="h-8 w-8 rounded-lg shrink-0 flex items-center justify-center text-xs font-bold text-white/60"
+                        style={{ background: `hsl(${parseInt(c.address.slice(2,4),16)*1.4}deg 55% 22%)` }}>
+                        {(c.name || c.address).slice(0, 2).toUpperCase()}
+                      </div>
+                    )}
+                    <div>
+                      <div className="text-white font-medium text-sm">{c.name || c.address.slice(0, 10) + '…'}</div>
+                      <div className="text-xs text-[var(--text-muted)] font-mono">{c.address.slice(0, 8)}…</div>
+                    </div>
                   </Link>
-                  <div className="text-xs text-[var(--text-muted)] font-mono mt-0.5">{c.address.slice(0, 8)}…</div>
                 </td>
                 <td className="px-4 py-3 text-right text-[var(--text-muted)]">
                   {Number(c.floor_price_eth) > 0 ? `${Number(c.floor_price_eth).toFixed(3)} ETH` : '—'}

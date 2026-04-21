@@ -12,6 +12,7 @@
 import type { FastifyInstance } from 'fastify'
 import { db } from '../db/client'
 import { withCache } from '../lib/cache'
+import { resolveNFTMeta } from '../lib/nftMeta'
 
 export async function collectionsRoutes(app: FastifyInstance) {
 
@@ -121,6 +122,17 @@ export async function collectionsRoutes(app: FastifyInstance) {
         [addr, hours]
       )
     )
+  })
+
+  // GET /collections/:address/token/:tokenId/meta
+  // Résout tokenURI → metadata JSON → image_url + name pour un NFT précis
+  // Cache 24h (les métadonnées NFT ne changent pas)
+  app.get<{
+    Params: { address: string; tokenId: string }
+  }>('/:address/token/:tokenId/meta', async (req, reply) => {
+    const { address, tokenId } = req.params
+    const key = `nft:meta:${address.toLowerCase()}:${tokenId}`
+    return withCache(key, 86_400_000, () => resolveNFTMeta(address.toLowerCase(), tokenId))
   })
 
   // GET /collections/:address/holders?limit=50
