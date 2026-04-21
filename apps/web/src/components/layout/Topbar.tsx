@@ -84,7 +84,7 @@ function LiveTicker() {
             <span className="text-[var(--text-muted)]">
               {sale.collection.slice(0, 8)}...
             </span>
-            <span className="text-white font-mono">{sale.priceEth.toFixed(3)}Ξ</span>
+            <span className="text-white font-mono">{sale.priceEth.toFixed(3)}ETH</span>
             <span className={sale.priceEth > 1 ? 'text-green-400' : 'text-[var(--text-muted)]'}>
               ●
             </span>

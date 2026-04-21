@@ -129,7 +129,7 @@ export function MoneyFlowSankey({ collection, period = '7d', height = 480 }: Pro
       .text(n => {
         const name  = (n as any).name ?? n.id
         const value = (n as any).value?.toFixed(1) ?? ''
-        return `${name.length > 16 ? name.slice(0, 14) + '…' : name}  ${value}Ξ`
+        return `${name.length > 16 ? name.slice(0, 14) + '…' : name}  ${value}ETH`
       })
 
     // Hover highlight

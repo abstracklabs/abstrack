@@ -324,9 +324,9 @@ function ClusterTooltip({ node, x, y }: { node: ClusterNode; x: number; y: numbe
       </div>
       <div className="space-y-0.5 text-[var(--text-muted)]">
         <p>Win Rate: <span className="text-green-400">{((node.win_rate ?? 0) * 100).toFixed(1)}%</span></p>
-        <p>Volume 30d: <span className="text-white">{node.value.toFixed(2)} Ξ</span></p>
+        <p>Volume 30d: <span className="text-white">{node.value.toFixed(2)} ETH</span></p>
         <p>PnL: <span className={node.pnl_eth !== undefined && node.pnl_eth >= 0 ? 'positive' : 'negative'}>
-          {(node.pnl_eth ?? 0) >= 0 ? '+' : ''}{(node.pnl_eth ?? 0).toFixed(3)} Ξ
+          {(node.pnl_eth ?? 0) >= 0 ? '+' : ''}{(node.pnl_eth ?? 0).toFixed(3)} ETH
         </span></p>
         <p>Score: <span className="text-purple-400">{node.score ?? 0}/100</span></p>
         <p>Cluster: <span style={{ color }}>{node.cluster === -1 ? 'Noise' : `C${node.cluster}`}</span></p>

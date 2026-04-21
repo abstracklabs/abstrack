@@ -39,7 +39,7 @@ export default function AnalyticsPage() {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <StatCard
           label="Volume 24h"
-          value={global ? `${Number(global.volume_24h_eth).toFixed(1)} Ξ` : '—'}
+          value={global ? `${Number(global.volume_24h_eth).toFixed(1)} ETH` : '—'}
           sub="last 24 hours"
           accent="blue"
           loading={globalLoading}
@@ -53,7 +53,7 @@ export default function AnalyticsPage() {
         />
         <StatCard
           label="Avg Sale Price"
-          value={global ? `${Number(global.avg_price_eth).toFixed(3)} Ξ` : '—'}
+          value={global ? `${Number(global.avg_price_eth).toFixed(3)} ETH` : '—'}
           sub="per transaction"
           accent="green"
           loading={globalLoading}
@@ -156,7 +156,7 @@ function LeaderboardRow({
       </span>
       <span className="font-mono text-sm text-white tabular-nums shrink-0">
         {valueKey === 'volume'
-          ? `${Number(row.volume_24h_eth).toFixed(2)} Ξ`
+          ? `${Number(row.volume_24h_eth).toFixed(2)} ETH`
           : row.sales_count_24h.toLocaleString()
         }
       </span>

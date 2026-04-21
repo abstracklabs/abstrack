@@ -68,11 +68,11 @@ function PersonalAlertToasts() {
         if (type === 'whale_buy') {
           variant = 'whale'
           title   = `🐋 ${String(ev.tier ?? 'Whale').replace(/_/g, ' ')}`
-          body    = `${String(ev.buyer ?? '').slice(0, 8)}… · ${Number(ev.price_eth ?? 0).toFixed(2)} Ξ`
+          body    = `${String(ev.buyer ?? '').slice(0, 8)}… · ${Number(ev.price_eth ?? 0).toFixed(2)} ETH`
         } else if (type === 'volume_explosion') {
           variant = 'volume'
           title   = `⚡ Volume ×${Number(ev.ratio ?? 0).toFixed(1)}`
-          body    = `${String(ev.collection ?? '').slice(0, 12)}… · ${Number(ev.volume_1h_eth ?? 0).toFixed(2)} Ξ/h`
+          body    = `${String(ev.collection ?? '').slice(0, 12)}… · ${Number(ev.volume_1h_eth ?? 0).toFixed(2)} ETH/h`
         } else if (type === 'trending_mint') {
           variant = 'mint'
           title   = `🔥 Trending Mint`

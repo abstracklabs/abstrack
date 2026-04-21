@@ -544,7 +544,7 @@ function TriggerRow({ trigger }: { trigger: any }) {
       <div className="flex-1 min-w-0">
         <p className="text-xs text-white truncate">
           {event.type === 'whale_buy'
-            ? `${event.buyer?.slice(0, 8)}… bought ${event.price_eth?.toFixed(2)} Ξ`
+            ? `${event.buyer?.slice(0, 8)}… bought ${event.price_eth?.toFixed(2)} ETH`
             : event.type === 'volume_explosion'
             ? `Volume ×${event.ratio?.toFixed(1)} on ${event.collection?.slice(0, 10)}…`
             : `Trending mint — score ${event.trending_score?.toFixed(1)}`

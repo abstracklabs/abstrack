@@ -79,18 +79,18 @@ export default function WalletPage({ params }: Params) {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <StatCard
           label="Total PnL"
-          value={`${isProfitable ? '+' : ''}${totalPnl.toFixed(4)} Ξ`}
+          value={`${isProfitable ? '+' : ''}${totalPnl.toFixed(4)} ETH`}
           accent={isProfitable ? 'green' : 'red'}
           sub={pnl ? `$${Math.abs(pnl.total_eth * 2500).toFixed(0)}` : undefined}
         />
         <StatCard
           label="Realized PnL"
-          value={`${(pnl?.realized_eth ?? 0).toFixed(4)} Ξ`}
+          value={`${(pnl?.realized_eth ?? 0).toFixed(4)} ETH`}
           accent="blue"
         />
         <StatCard
           label="Unrealized"
-          value={`${(pnl?.unrealized_eth ?? 0).toFixed(4)} Ξ`}
+          value={`${(pnl?.unrealized_eth ?? 0).toFixed(4)} ETH`}
           sub="open positions"
         />
         <StatCard
@@ -179,13 +179,13 @@ const PORTFOLIO_COLUMNS = [
   {
     key: 'cost', header: 'Cost Basis', align: 'right' as const,
     render: (r: any) => (
-      <span className="font-mono text-sm text-[var(--text-muted)]">{r.cost_basis_eth?.toFixed(4)} Ξ</span>
+      <span className="font-mono text-sm text-[var(--text-muted)]">{r.cost_basis_eth?.toFixed(4)} ETH</span>
     ),
   },
   {
     key: 'floor', header: 'Floor Now', align: 'right' as const,
     render: (r: any) => (
-      <span className="font-mono text-sm text-white">{r.floor_eth?.toFixed(4)} Ξ</span>
+      <span className="font-mono text-sm text-white">{r.floor_eth?.toFixed(4)} ETH</span>
     ),
   },
   {
@@ -194,7 +194,7 @@ const PORTFOLIO_COLUMNS = [
       const pnl = (r.floor_eth - r.cost_basis_eth)
       return (
         <span className={`font-mono text-sm font-semibold ${pnl >= 0 ? 'positive' : 'negative'}`}>
-          {pnl >= 0 ? '+' : ''}{pnl?.toFixed(4)} Ξ
+          {pnl >= 0 ? '+' : ''}{pnl?.toFixed(4)} ETH
         </span>
       )
     },
@@ -227,7 +227,7 @@ const PNL_COLUMNS = [
   {
     key: 'value', header: 'Value', align: 'right' as const,
     render: (r: any) => (
-      <span className="font-mono text-sm text-white">{r.value_eth?.toFixed(4)} Ξ</span>
+      <span className="font-mono text-sm text-white">{r.value_eth?.toFixed(4)} ETH</span>
     ),
   },
   {

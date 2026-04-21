@@ -405,7 +405,7 @@ function NodeTooltip({ node, x, y }: { node: SimNode; x: number; y: number }) {
     >
       <p className="font-mono text-white mb-1">{node.label ?? node.id.slice(0, 12) + '...'}</p>
       <p className="text-[var(--text-muted)]">
-        Volume: <span className="text-white">{node.value.toFixed(2)} Ξ</span>
+        Volume: <span className="text-white">{node.value.toFixed(2)} ETH</span>
       </p>
       <p className="text-[var(--text-muted)]">
         Type: <span style={{ color: NODE_COLORS[node.type] }}>{node.type.replace('_', ' ')}</span>

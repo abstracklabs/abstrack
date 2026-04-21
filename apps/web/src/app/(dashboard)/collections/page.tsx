@@ -59,10 +59,10 @@ export default function CollectionsPage() {
                   <div className="text-xs text-[var(--text-muted)] font-mono mt-0.5">{c.address.slice(0, 8)}…</div>
                 </td>
                 <td className="px-4 py-3 text-right text-[var(--text-muted)]">
-                  {Number(c.floor_price_eth) > 0 ? `${Number(c.floor_price_eth).toFixed(3)} Ξ` : '—'}
+                  {Number(c.floor_price_eth) > 0 ? `${Number(c.floor_price_eth).toFixed(3)} ETH` : '—'}
                 </td>
                 <td className="px-4 py-3 text-right font-medium text-white">
-                  {Number(c.volume_24h_eth) > 0 ? `${Number(c.volume_24h_eth).toFixed(2)} Ξ` : '0.00 Ξ'}
+                  {Number(c.volume_24h_eth) > 0 ? `${Number(c.volume_24h_eth).toFixed(2)} ETH` : '0.00 ETH'}
                 </td>
                 <td className="px-4 py-3 text-right text-[var(--text-muted)]">{c.sales_count_24h ?? 0}</td>
               </tr>

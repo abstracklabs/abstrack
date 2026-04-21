@@ -159,7 +159,7 @@ function EventDetail({ event, cfg }: { event: AlphaEvent; cfg: typeof EVENT_CFG[
         </span>
         <div className="flex items-baseline gap-1">
           <span className={`text-sm font-bold tabular-nums ${cfg.color}`}>
-            {Number(d.price_eth).toFixed(2)} Ξ
+            {Number(d.price_eth).toFixed(2)} ETH
           </span>
           {d.price_usd != null && (
             <span className="text-[10px] text-[var(--text-muted)]">
@@ -179,7 +179,7 @@ function EventDetail({ event, cfg }: { event: AlphaEvent; cfg: typeof EVENT_CFG[
         </span>
         <div className="flex items-baseline gap-1">
           <span className={`text-sm font-bold tabular-nums ${cfg.color}`}>
-            {Number(d.volume_1h_eth).toFixed(2)} Ξ
+            {Number(d.volume_1h_eth).toFixed(2)} ETH
           </span>
           <span className="text-[10px] text-[var(--text-muted)]">/ 1h</span>
         </div>
@@ -194,7 +194,7 @@ function EventDetail({ event, cfg }: { event: AlphaEvent; cfg: typeof EVENT_CFG[
           {Number(d.sales_10min)} sales / 10min
         </span>
         <span className={`text-sm font-bold tabular-nums ${cfg.color}`}>
-          {Number(d.volume_10min_eth).toFixed(2)} Ξ
+          {Number(d.volume_10min_eth).toFixed(2)} ETH
         </span>
       </div>
     )

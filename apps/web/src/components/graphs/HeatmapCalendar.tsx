@@ -161,14 +161,14 @@ export function HeatmapCalendar({ collection, metric = 'volume', height = 130 }:
         >
           <p className="text-white font-medium mb-1">{tooltip.day.date}</p>
           <p className="text-[var(--text-muted)]">
-            Volume: <span className="text-white">{tooltip.day.volume_eth.toFixed(2)} Ξ</span>
+            Volume: <span className="text-white">{tooltip.day.volume_eth.toFixed(2)} ETH</span>
           </p>
           <p className="text-[var(--text-muted)]">
             Sales: <span className="text-white">{tooltip.day.sales_count}</span>
           </p>
           {tooltip.day.floor_eth > 0 && (
             <p className="text-[var(--text-muted)]">
-              Floor: <span className="text-white">{tooltip.day.floor_eth.toFixed(4)} Ξ</span>
+              Floor: <span className="text-white">{tooltip.day.floor_eth.toFixed(4)} ETH</span>
             </p>
           )}
         </div>

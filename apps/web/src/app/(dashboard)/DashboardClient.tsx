@@ -39,7 +39,7 @@ export function DashboardClient() {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
           label="Volume 24h"
-          value={global ? `${Number(global.volume_24h_eth).toFixed(1)} Ξ` : '—'}
+          value={global ? `${Number(global.volume_24h_eth).toFixed(1)} ETH` : '—'}
           sub={global ? `~$${_usdFmt(Number(global.volume_24h_eth) * 3500)}` : undefined}
           accent="blue"
           loading={globalLoading}
@@ -60,7 +60,7 @@ export function DashboardClient() {
         />
         <StatCard
           label="Avg Sale"
-          value={global ? `${Number(global.avg_price_eth).toFixed(3)} Ξ` : '—'}
+          value={global ? `${Number(global.avg_price_eth).toFixed(3)} ETH` : '—'}
           sub="per transaction"
           accent="orange"
           loading={globalLoading}
@@ -167,12 +167,12 @@ function CollectionRow({ row, rank, onClick }: { row: CollectionRow; rank: numbe
 
       {/* Floor */}
       <span className="text-sm font-mono text-white tabular-nums text-right">
-        {Number(row.floor_price_eth) > 0 ? `${Number(row.floor_price_eth).toFixed(4)} Ξ` : '—'}
+        {Number(row.floor_price_eth) > 0 ? `${Number(row.floor_price_eth).toFixed(4)} ETH` : '—'}
       </span>
 
       {/* Volume */}
       <span className="text-sm font-mono text-white tabular-nums text-right">
-        {_ethFmt(Number(row.volume_24h_eth))} Ξ
+        {_ethFmt(Number(row.volume_24h_eth))} ETH
       </span>
 
       {/* Sales */}

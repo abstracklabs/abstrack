@@ -70,7 +70,7 @@ export function FloorChart({ collection, period = '7d', height = 240 }: Props) {
       crosshairMarkerRadius:  4,
       crosshairMarkerBorderColor: '#58a6ff',
       crosshairMarkerBackgroundColor: '#0d1117',
-      priceFormat: { type: 'custom', formatter: (v: number) => `${v.toFixed(4)}Ξ` },
+      priceFormat: { type: 'custom', formatter: (v: number) => `${v.toFixed(4)}ETH` },
     })
 
     chartRef.current = chart

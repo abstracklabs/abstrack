@@ -64,7 +64,7 @@ export default function CollectionPage({ params }: Params) {
 
       {/* KPIs */}
       <div className="grid grid-cols-5 gap-3">
-        <StatCard label="Floor"     value={`${stats?.floor_eth?.toFixed(4) ?? '—'} Ξ`}  change={stats?.change_24h_pct} loading={isLoading} accent="blue" />
+        <StatCard label="Floor"     value={`${stats?.floor_eth?.toFixed(4) ?? '—'} ETH`}  change={stats?.change_24h_pct} loading={isLoading} accent="blue" />
         <StatCard label="Volume 24h" value={`$${((stats?.volume_24h_usd ?? 0) / 1000).toFixed(1)}k`} loading={isLoading} accent="purple" />
         <StatCard label="Sales 24h" value={stats?.sales_24h ?? '—'}    loading={isLoading} />
         <StatCard label="Holders"   value={stats?.holder_count ?? '—'} loading={isLoading} />
@@ -145,7 +145,7 @@ const SALES_COLUMNS = [
     key: 'price', header: 'Price', align: 'right' as const,
     render: (r: any) => (
       <div className="text-right">
-        <p className="font-mono text-white text-sm">{(r.price_eth ?? r.priceEth)?.toFixed(4)} Ξ</p>
+        <p className="font-mono text-white text-sm">{(r.price_eth ?? r.priceEth)?.toFixed(4)} ETH</p>
         <p className="font-mono text-[var(--text-muted)] text-xs">${(r.price_usd ?? r.priceUsd)?.toFixed(0)}</p>
       </div>
     ),
