@@ -1,12 +1,15 @@
 """
-LiveListener — WebSocket blockchain → PostgreSQL.
+LiveListener — HTTP polling blockchain → PostgreSQL.
+
+Abstract ne supporte pas WebSocket public — on utilise le polling HTTP.
+Abstract produit un bloc toutes les ~2s : le polling est parfaitement adapté.
 
 Robustesse production :
 - session aiohttp persistante (réutilisée entre les blocs)
 - checkpoint sauvegardé tous les N blocs pendant le catchup
 - retry par log individuel (un log qui échoue ne bloque pas le bloc)
 - timeout sur get_logs pour ne pas bloquer indéfiniment
-- pas de session aiohttp recréée à chaque appel
+- backoff exponentiel sur erreur RPC
 """
 
 import asyncio
@@ -17,7 +20,7 @@ from typing import Optional
 
 import aiohttp
 from web3 import AsyncWeb3
-from web3.providers import WebSocketProvider
+from web3.providers import AsyncHTTPProvider
 
 from core.integrity import GapDetector
 from decoders.nft import decode_nft_log, TRACKED_TOPICS
@@ -28,6 +31,7 @@ logger = logging.getLogger("indexer.listener")
 ETH_PRICE_URL = "https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd"
 CATCHUP_CHECKPOINT_INTERVAL = 50   # sauvegarde le checkpoint tous les 50 blocs pendant le catchup
 GET_LOGS_TIMEOUT = 10.0            # secondes max pour eth_getLogs
+POLL_INTERVAL = 2.0                # secondes entre chaque poll (Abstract ~2s/bloc)
 
 
 class LiveListener:
@@ -35,7 +39,7 @@ class LiveListener:
     _BACKOFF_MAX   = 30.0
 
     def __init__(self, rpc_wss: str, rpc_http: str, db: Database):
-        self.rpc_wss  = rpc_wss
+        self.rpc_wss  = rpc_wss   # gardé pour compatibilité, non utilisé
         self.rpc_http = rpc_http
         self.db       = db
         self._running = False
@@ -47,7 +51,6 @@ class LiveListener:
 
     async def start(self):
         self._running = True
-        # Session HTTP ouverte une seule fois pour toute la durée de vie
         self._http_session = aiohttp.ClientSession(
             timeout=aiohttp.ClientTimeout(total=5)
         )
@@ -72,40 +75,37 @@ class LiveListener:
     async def stop(self):
         self._running = False
 
-    # ─── Connexion principale ─────────────────────────────────────────────────
+    # ─── Connexion principale (HTTP polling) ──────────────────────────────────
 
     async def _stream(self):
-        async with AsyncWeb3(WebSocketProvider(self.rpc_wss)) as w3:
-            logger.info("Connected to Abstract node")
-            await self._catchup(w3)
+        w3 = AsyncWeb3(AsyncHTTPProvider(self.rpc_http))
+        logger.info("Connected to Abstract node (HTTP polling)")
 
-            # Détection des trous après le catchup (blocs skippés sur crash/timeout)
-            current_head = await w3.eth.block_number
-            detector     = GapDetector(self.db, self._process_block)
-            gaps         = await detector.check(current_head)
-            fill_task: asyncio.Task | None = None
-            if gaps:
-                # fill() utilise w3 — on le garde dans le scope du context manager
-                # et on l'annule proprement si la connexion se ferme avant la fin
-                fill_task = asyncio.create_task(detector.fill(gaps, w3))
+        await self._catchup(w3)
 
-            await w3.eth.subscribe("newHeads")
-            logger.info("Subscribed to newHeads")
+        # Détection des trous après le catchup
+        current_head = await w3.eth.block_number
+        detector     = GapDetector(self.db, self._process_block)
+        gaps         = await detector.check(current_head)
+        if gaps:
+            await detector.fill(gaps, w3)
 
+        logger.info("Live polling started")
+        last_seen = current_head
+
+        while self._running:
+            await asyncio.sleep(POLL_INTERVAL)
             try:
-                async for payload in w3.socket.process_subscriptions():
-                    if not self._running:
-                        break
-                    header = payload.get("result", payload)
-                    await self._handle_new_head(w3, header)
-            finally:
-                # La connexion WS se ferme — annuler le fill en cours s'il tourne encore
-                if fill_task and not fill_task.done():
-                    fill_task.cancel()
-                    try:
-                        await fill_task
-                    except asyncio.CancelledError:
-                        logger.info("Gap fill task cancelled (stream closed)")
+                current = await w3.eth.block_number
+                if current > last_seen:
+                    for block_num in range(last_seen + 1, current + 1):
+                        if not self._running:
+                            return
+                        await self._process_block(w3, block_num)
+                    last_seen = current
+            except Exception as e:
+                logger.warning(f"Poll error: {e!r}")
+                raise  # déclenche le backoff dans start()
 
     # ─── Rattrapage ───────────────────────────────────────────────────────────
 
@@ -130,11 +130,6 @@ class LiveListener:
                 logger.info(f"Catchup progress: block {n}/{current}")
 
     # ─── Nouveau bloc via subscription ───────────────────────────────────────
-
-    async def _handle_new_head(self, w3: AsyncWeb3, header: dict):
-        raw_num = header.get("number", "0x0")
-        block_num = int(raw_num, 16) if isinstance(raw_num, str) else int(raw_num)
-        await self._process_block(w3, block_num)
 
     # ─── Traitement d'un bloc ─────────────────────────────────────────────────
 
