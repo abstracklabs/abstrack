@@ -18,10 +18,11 @@ import websocket from '@fastify/websocket'
 import { db }                      from './db/client'
 import { registerRoutes }          from './routes'
 import { WsManager }               from './ws/manager'
-import { startAlertsCron }         from './jobs/alerts'
-import { startIntegrityCron }      from './jobs/integrity'
-import { startAlphaCron }          from './jobs/alpha'
-import { resolveCollectionNames }  from './jobs/resolveNames'
+import { startAlertsCron }           from './jobs/alerts'
+import { startIntegrityCron }        from './jobs/integrity'
+import { startAlphaCron }            from './jobs/alpha'
+import { startLiveSalesBroadcaster } from './jobs/liveSales'
+import { resolveCollectionNames }    from './jobs/resolveNames'
 import { logger }                  from './lib/logger'
 import { registerRequestLogger }   from './lib/requestLogger'
 
@@ -125,6 +126,7 @@ export async function buildServer() {
   startAlertsCron(wsManager)
   startIntegrityCron()
   startAlphaCron(wsManager)
+  startLiveSalesBroadcaster(wsManager)
 
   // ── Name resolution (background, non-blocking) ────────────────────────────
   resolveCollectionNames().catch(err =>
