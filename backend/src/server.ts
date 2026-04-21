@@ -21,6 +21,7 @@ import { WsManager }               from './ws/manager'
 import { startAlertsCron }         from './jobs/alerts'
 import { startIntegrityCron }      from './jobs/integrity'
 import { startAlphaCron }          from './jobs/alpha'
+import { resolveCollectionNames }  from './jobs/resolveNames'
 import { logger }                  from './lib/logger'
 import { registerRequestLogger }   from './lib/requestLogger'
 
@@ -124,6 +125,11 @@ export async function buildServer() {
   startAlertsCron(wsManager)
   startIntegrityCron()
   startAlphaCron(wsManager)
+
+  // ── Name resolution (background, non-blocking) ────────────────────────────
+  resolveCollectionNames().catch(err =>
+    logger.warn({ err }, 'resolveCollectionNames background task failed')
+  )
 
   return { app, wsManager }
 }
