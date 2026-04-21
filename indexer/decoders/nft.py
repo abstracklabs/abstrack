@@ -18,9 +18,12 @@ Seaport OrderFulfilled ABI :
   ReceivedItem = (uint8 itemType, address token, uint256 identifier, uint256 amount, address recipient)
 """
 
+import logging
 from datetime import datetime, timezone
 from typing import Optional
 from eth_abi import decode as abi_decode
+
+logger = logging.getLogger("indexer.decoder")
 
 # ─── Topics ───────────────────────────────────────────────────────────────────
 
@@ -65,6 +68,7 @@ def decode_nft_log(
         return _decode_erc721(log, topics, block_number, block_ts)
 
     if topic0 in SEAPORT_TOPICS:
+        logger.info(f"Seaport OrderFulfilled detected — block {block_number} tx {log.get('transactionHash')} topic0={topic0}")
         return _decode_seaport_sale(log, topics, block_number, block_ts, eth_usd)
 
     return None
@@ -132,6 +136,10 @@ def _decode_seaport_sale(
     try:
         raw = bytes.fromhex(log.get("data", "0x")[2:])
 
+        if len(raw) == 0:
+            logger.warning(f"Seaport log has empty data — tx {log.get('transactionHash')}")
+            return None
+
         recipient, offer, consideration = abi_decode(
             [
                 "address",                                          # recipient (buyer)
@@ -152,6 +160,7 @@ def _decode_seaport_sale(
                 break
 
         if nft_item is None:
+            logger.debug(f"Seaport sale has no NFT item (offer itemTypes: {[i[0] for i in offer]}) — tx {log.get('transactionHash')}")
             return None  # pas un NFT sale
 
         _, nft_token, nft_id, _ = nft_item
@@ -169,10 +178,13 @@ def _decode_seaport_sale(
 
         price_eth = price_wei / WEI
 
-    except Exception:
+    except Exception as exc:
+        logger.warning(f"Seaport ABI decode failed — tx {log.get('transactionHash')}: {exc!r} (data[:32]={log.get('data','0x')[:66]})")
         return None  # ABI mismatch ou données corrompues → on saute
 
     price_usd = round(price_eth * eth_usd, 4) if eth_usd and price_eth > 0 else None
+
+    logger.info(f"Seaport sale decoded: {collection} #{token_id} — {price_eth:.4f} ETH — tx {log.get('transactionHash')}")
 
     return {
         "kind":            "sale",
