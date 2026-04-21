@@ -106,7 +106,7 @@ function HolderTreemap({ collection, height }: { collection: string; height: num
       .domain([0, (root.children?.[0]?.value ?? 1)])
 
     const cell = svg.selectAll('g')
-      .data(root.leaves())
+      .data(root.leaves() as d3.HierarchyRectangularNode<any>[])
       .join('g')
       .attr('transform', d => `translate(${d.x0},${d.y0})`)
 
