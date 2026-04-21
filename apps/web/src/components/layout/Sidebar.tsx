@@ -15,16 +15,15 @@ const NAV = [
   {
     label: 'Discover',
     items: [
-      { href: '/collections', icon: ImageIcon, label: 'Collections'  },
-      { href: '/tokens',      icon: CoinIcon,  label: 'Tokens'       },
-      { href: '/whales',      icon: WhaleIcon, label: 'Whales'       },
+      { href: '/collections', icon: ImageIcon, label: 'Collections' },
+      { href: '/whales',      icon: WhaleIcon, label: 'Whales'      },
     ],
   },
   {
     label: 'Tools',
     items: [
-      { href: '/wallet',     icon: WalletIcon, label: 'Wallet Tracker' },
-      { href: '/alerts',     icon: BellIcon,   label: 'Alerts'          },
+      { href: '/wallet', icon: WalletIcon, label: 'Wallet Tracker' },
+      { href: '/alerts', icon: BellIcon,   label: 'Alerts'         },
     ],
   },
 ]
