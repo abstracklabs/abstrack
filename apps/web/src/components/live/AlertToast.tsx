@@ -62,7 +62,7 @@ function PersonalAlertToasts() {
         const type = String(ev.type ?? '')
 
         let variant: 'whale' | 'volume' | 'mint' | 'alert' = 'alert'
-        let title = t.alertName ?? 'Alert triggered'
+        let title = 'Alert triggered'
         let body  = ''
 
         if (type === 'whale_buy') {
