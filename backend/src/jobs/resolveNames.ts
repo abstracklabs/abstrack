@@ -30,27 +30,44 @@ function normalizeUri(uri: string): string | null {
   return null
 }
 
-async function fetchContractImage(address: string): Promise<string | null> {
-  try {
-    const res = await ethCallString(address, SEL_CONTRACT_URI)
-    if (!res) return null
-    const metaUrl = normalizeUri(res)
-    if (!metaUrl) return null
+function encodeUint256(n: number): string {
+  return BigInt(n).toString(16).padStart(64, '0')
+}
 
-    let meta: any
-    if (metaUrl.startsWith('data:application/json;base64,')) {
-      meta = JSON.parse(Buffer.from(metaUrl.slice('data:application/json;base64,'.length), 'base64').toString())
-    } else if (metaUrl.startsWith('data:application/json,')) {
-      meta = JSON.parse(decodeURIComponent(metaUrl.slice('data:application/json,'.length)))
-    } else {
-      meta = await fetch(metaUrl, { signal: AbortSignal.timeout(5_000) }).then(r => r.json())
-    }
-
-    const img = meta?.image ?? meta?.image_url ?? meta?.image_details?.url ?? null
-    return img ? normalizeUri(img) : null
-  } catch {
-    return null
+async function fetchMetaFromUri(uri: string): Promise<any | null> {
+  const url = normalizeUri(uri)
+  if (!url) return null
+  if (url.startsWith('data:application/json;base64,')) {
+    return JSON.parse(Buffer.from(url.slice('data:application/json;base64,'.length), 'base64').toString())
   }
+  if (url.startsWith('data:application/json,')) {
+    return JSON.parse(decodeURIComponent(url.slice('data:application/json,'.length)))
+  }
+  return fetch(url, { signal: AbortSignal.timeout(6_000) }).then(r => r.json()).catch(() => null)
+}
+
+async function fetchContractImage(address: string): Promise<string | null> {
+  // 1. Essaie contractURI() — metadata de collection
+  try {
+    const contractUri = await ethCallString(address, SEL_CONTRACT_URI)
+    if (contractUri) {
+      const meta = await fetchMetaFromUri(contractUri)
+      const img = meta?.image ?? meta?.image_url ?? meta?.image_details?.url ?? null
+      if (img) return normalizeUri(img)
+    }
+  } catch { /* fallback */ }
+
+  // 2. Fallback : tokenURI(1) — image du premier token
+  try {
+    const tokenUri = await ethCallString(address, '0xc87b56dd' + encodeUint256(1))
+    if (tokenUri) {
+      const meta = await fetchMetaFromUri(tokenUri)
+      const img = meta?.image ?? meta?.image_url ?? meta?.image_details?.url ?? null
+      if (img) return normalizeUri(img)
+    }
+  } catch { /* ignore */ }
+
+  return null
 }
 
 async function ethCallString(address: string, selector: string): Promise<string> {
@@ -77,7 +94,7 @@ async function ethCallString(address: string, selector: string): Promise<string>
 
     // Standard ABI string: word0=offset, word1=length, word2+=data
     const strLen = parseInt(raw.slice(64, 128), 16)
-    if (strLen === 0 || strLen > 256) return ''
+    if (strLen === 0 || strLen > 8192) return ''
     const strHex = raw.slice(128, 128 + strLen * 2)
     return Buffer.from(strHex, 'hex').toString('utf8').trim()
   } catch {
@@ -89,7 +106,9 @@ export async function resolveCollectionNames(): Promise<void> {
   let rows: { address: string }[]
   try {
     rows = await db.query(
-      `SELECT address FROM collections WHERE name IS NULL OR trim(name) = '' LIMIT 200`
+      `SELECT address FROM collections
+       WHERE name IS NULL OR trim(name) = '' OR thumbnail_url IS NULL
+       LIMIT 200`
     )
   } catch (err) {
     logger.warn({ err }, 'resolveCollectionNames: could not query collections')
