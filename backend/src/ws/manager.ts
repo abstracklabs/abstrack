@@ -100,7 +100,7 @@ export class WsManager {
       if (m) m.isAlive = true
     })
 
-    ws.on('message', (raw, isBinary) => {
+    ws.on('message', (raw: Buffer | string, isBinary: boolean) => {
       if (isBinary) return  // on n'accepte que du texte
 
       // Limite taille des messages entrants
@@ -144,7 +144,7 @@ export class WsManager {
 
     for (const ws of members) {
       if (ws.readyState === WS_OPEN) {
-        ws.send(data, (err) => {
+        ws.send(data, (err: Error | undefined) => {
           if (err) console.error(`[ws] send error in room ${room}: ${err.message}`)
         })
       } else {
@@ -217,7 +217,7 @@ export class WsManager {
 
   private _send(ws: WebSocket, data: object) {
     if (ws.readyState === WS_OPEN) {
-      ws.send(JSON.stringify(data), (err) => {
+      ws.send(JSON.stringify(data), (err: Error | undefined) => {
         if (err) log.warn({ err }, 'Send error')
       })
     }
