@@ -69,7 +69,7 @@ export async function resolveNFTMeta(
         params: [{ to: collection, data: callData }, 'latest'],
       }),
       signal: AbortSignal.timeout(TIMEOUT),
-    }).then(r => r.json())
+    }).then(r => r.json() as any)
 
     if (!rpcRes.result || rpcRes.result === '0x') return blank
     const tokenUri = decodeAbiString(rpcRes.result)
@@ -101,7 +101,7 @@ export async function resolveNFTMeta(
 
     const meta = await fetch(metaUrl, {
       signal: AbortSignal.timeout(TIMEOUT),
-    }).then(r => r.json())
+    }).then(r => r.json() as any)
 
     return {
       image_url: normalizeUri(meta.image ?? meta.image_url ?? meta.image_details?.url ?? ''),

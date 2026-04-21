@@ -80,7 +80,7 @@ async function ethCallString(address: string, selector: string): Promise<string>
         params: [{ to: address, data: selector }, 'latest'],
       }),
       signal: AbortSignal.timeout(4_000),
-    }).then(r => r.json())
+    }).then(r => r.json() as any)
 
     const hex: string = res.result ?? ''
     if (!hex || hex === '0x') return ''
