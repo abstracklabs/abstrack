@@ -20,7 +20,7 @@ from typing import Optional
 
 import aiohttp
 from web3 import AsyncWeb3
-from web3.providers import AsyncHTTPProvider
+from web3.providers import AsyncHTTPProvider, WebSocketProvider
 
 from core.integrity import GapDetector
 from decoders.nft import decode_nft_log, TRACKED_TOPICS
@@ -75,37 +75,35 @@ class LiveListener:
     async def stop(self):
         self._running = False
 
-    # ─── Connexion principale (HTTP polling) ──────────────────────────────────
+    # ─── Connexion principale (catchup HTTP + live WebSocket) ────────────────
 
     async def _stream(self):
-        w3 = AsyncWeb3(AsyncHTTPProvider(self.rpc_http))
-        logger.info("Connected to Abstract node (HTTP polling)")
+        # Catchup via HTTP — plus fiable pour les grandes plages
+        w3_http = AsyncWeb3(AsyncHTTPProvider(self.rpc_http))
+        logger.info("Connected to Abstract node (HTTP)")
+        await self._catchup(w3_http)
 
-        await self._catchup(w3)
+        # Live via WebSocket — push temps réel
+        async with AsyncWeb3(WebSocketProvider(self.rpc_wss)) as w3:
+            logger.info("Connected to Abstract node (WebSocket live)")
 
-        # Détection des trous après le catchup
-        current_head = await w3.eth.block_number
-        detector     = GapDetector(self.db, self._process_block)
-        gaps         = await detector.check(current_head)
-        if gaps:
-            await detector.fill(gaps, w3)
+            # Détection des trous après le catchup
+            current_head = await w3.eth.block_number
+            detector     = GapDetector(self.db, self._process_block)
+            gaps         = await detector.check(current_head)
+            if gaps:
+                await detector.fill(gaps, w3)
 
-        logger.info("Live polling started")
-        last_seen = current_head
+            await w3.eth.subscribe("newHeads")
+            logger.info("Subscribed to newHeads — live indexing active")
 
-        while self._running:
-            await asyncio.sleep(POLL_INTERVAL)
-            try:
-                current = await w3.eth.block_number
-                if current > last_seen:
-                    for block_num in range(last_seen + 1, current + 1):
-                        if not self._running:
-                            return
-                        await self._process_block(w3, block_num)
-                    last_seen = current
-            except Exception as e:
-                logger.warning(f"Poll error: {e!r}")
-                raise  # déclenche le backoff dans start()
+            async for payload in w3.socket.process_subscriptions():
+                if not self._running:
+                    break
+                header = payload.get("result", payload)
+                raw_num = header.get("number", "0x0")
+                block_num = int(raw_num, 16) if isinstance(raw_num, str) else int(raw_num)
+                await self._process_block(w3, block_num)
 
     # ─── Rattrapage ───────────────────────────────────────────────────────────
 
