@@ -128,10 +128,12 @@ def _decode_seaport_sale(
         ReceivedItem[] consideration    → paiement ETH/WETH
     )
     """
-    if len(topics) < 3:
+    if len(topics) < 2:
         return None
 
-    seller = _topic_addr(topics[2])  # offerer = celui qui a listé = vendeur
+    # Seaport 1.6 sur Abstract : 3 topics seulement (orderHash n'est PAS indexé)
+    # topics[1] = offerer (seller), topics[2] = zone
+    seller = _topic_addr(topics[1])  # offerer = celui qui a listé = vendeur
 
     try:
         raw = bytes.fromhex(log.get("data", "0x")[2:])
@@ -140,8 +142,14 @@ def _decode_seaport_sale(
             logger.warning(f"Seaport log has empty data — tx {log.get('transactionHash')}")
             return None
 
-        recipient, offer, consideration = abi_decode(
+        # ABI Seaport 1.6 sur Abstract :
+        # bytes32 orderHash (NON indexé — premier champ du data)
+        # address recipient (buyer)
+        # SpentItem[] offer
+        # ReceivedItem[] consideration
+        order_hash, recipient, offer, consideration = abi_decode(
             [
+                "bytes32",                                          # orderHash (non-indexed)
                 "address",                                          # recipient (buyer)
                 "(uint8,address,uint256,uint256)[]",                # SpentItem[]
                 "(uint8,address,uint256,uint256,address)[]",        # ReceivedItem[]
