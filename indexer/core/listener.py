@@ -249,19 +249,38 @@ class LiveListener:
             logger.debug(f"Could not resolve meta for {address}: {e!r}")
 
     async def _eth_call_string(self, w3: AsyncWeb3, address: str, selector: str) -> str:
-        """Fait un eth_call et décode le retour comme une string ABI-encodée."""
-        from eth_abi import decode as abi_decode
+        """Fait un eth_call et décode le retour comme une string ABI-encodée.
+
+        Gère deux formats courants :
+          - ABI string standard : offset(32) + length(32) + utf8 data
+          - bytes32 non-padded (anciens contrats) : 32 bytes raw utf8
+        """
         try:
-            result = await asyncio.wait_for(
+            raw = await asyncio.wait_for(
                 w3.eth.call({"to": address, "data": selector}),
                 timeout=3.0,
             )
-            if not result or result == b"":
+            # Convertit HexBytes → bytes si nécessaire
+            data = bytes(raw) if raw else b""
+            if len(data) == 0:
                 return ""
-            # Decode ABI string (offset + length + data)
-            decoded = abi_decode(["string"], result)
-            return decoded[0][:128]  # max 128 chars
-        except Exception:
+
+            # Décodage manuel — plus robuste que eth_abi pour les variants non-standard
+            # Format ABI : premier mot = offset (0x20), deuxième = longueur, puis UTF-8
+            if len(data) >= 64:
+                offset = int.from_bytes(data[0:32], "big")
+                if offset == 32:  # format ABI standard
+                    str_len = int.from_bytes(data[32:64], "big")
+                    if str_len > 0 and len(data) >= 64 + str_len:
+                        return data[64:64 + str_len].decode("utf-8", errors="replace").strip("\x00").strip()[:128]
+
+            # Fallback : bytes32 brut (certains anciens contrats)
+            if len(data) >= 32:
+                return data[:32].rstrip(b"\x00").decode("utf-8", errors="ignore").strip()[:128]
+
+            return ""
+        except Exception as e:
+            logger.debug(f"eth_call_string failed for {address} sel={selector}: {e!r}")
             return ""
 
     # ─── Prix ETH/USD ─────────────────────────────────────────────────────────

@@ -192,10 +192,12 @@ class Database:
         return bool(await _with_retry(_do))
 
     async def get_unnamed_collections(self) -> list[str]:
-        """Retourne les adresses des collections sans nom (pour backfill au démarrage)."""
+        """Retourne les adresses des collections sans nom (pour backfill au démarrage).
+        Inclut les lignes avec name='' (résolution précédente échouée silencieusement).
+        """
         async with self._pool.acquire() as conn:
             rows = await conn.fetch(
-                "SELECT address FROM collections WHERE name IS NULL OR name = '' LIMIT 200"
+                "SELECT address FROM collections WHERE name IS NULL OR trim(name) = '' LIMIT 200"
             )
         return [r["address"] for r in rows]
 
