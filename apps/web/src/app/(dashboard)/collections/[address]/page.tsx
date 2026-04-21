@@ -68,17 +68,17 @@ export default function CollectionPage({ params }: Params) {
 
         <div className="text-right">
           <p className="text-xs text-[var(--text-muted)] mb-1">Floor Price</p>
-          <LiveFloorTicker collection={addr} initialFloor={stats?.floor_eth} />
+          <LiveFloorTicker collection={addr} initialFloor={Number(stats?.floor_price_eth ?? 0) || undefined} />
         </div>
       </div>
 
       {/* KPIs */}
       <div className="grid grid-cols-5 gap-3">
-        <StatCard label="Floor"     value={`${stats?.floor_eth?.toFixed(4) ?? '—'} ETH`}  change={stats?.change_24h_pct} loading={isLoading} accent="blue" />
-        <StatCard label="Volume 24h" value={`$${((stats?.volume_24h_usd ?? 0) / 1000).toFixed(1)}k`} loading={isLoading} accent="purple" />
-        <StatCard label="Sales 24h" value={stats?.sales_24h ?? '—'}    loading={isLoading} />
-        <StatCard label="Holders"   value={stats?.holder_count ?? '—'} loading={isLoading} />
-        <StatCard label="Listed"    value={stats?.listing_count ?? '—'} loading={isLoading} />
+        <StatCard label="Floor"      value={stats?.floor_price_eth ? `${Number(stats.floor_price_eth).toFixed(4)} ETH` : '—'} change={stats?.change_24h_pct} loading={isLoading} accent="blue" />
+        <StatCard label="Volume 24h" value={stats?.volume_24h_eth   ? `${Number(stats.volume_24h_eth).toFixed(2)} ETH` : '—'} loading={isLoading} accent="purple" />
+        <StatCard label="Sales 24h"  value={stats?.sales_count_24h ?? '—'} loading={isLoading} />
+        <StatCard label="Holders"    value={stats?.holder_count ?? '—'}     loading={isLoading} />
+        <StatCard label="Listed"     value={stats?.listing_count ?? '—'}    loading={isLoading} />
       </div>
 
       {/* Chart + live feed */}
@@ -158,12 +158,16 @@ function salesColumns(collection: string) {
   },
   {
     key: 'price', header: 'Price', align: 'right' as const,
-    render: (r: any) => (
-      <div className="text-right">
-        <p className="font-mono text-white text-sm">{(r.price_eth ?? r.priceEth)?.toFixed(4)} ETH</p>
-        <p className="font-mono text-[var(--text-muted)] text-xs">${(r.price_usd ?? r.priceUsd)?.toFixed(0)}</p>
-      </div>
-    ),
+    render: (r: any) => {
+      const eth = Number(r.price_eth ?? r.priceEth ?? 0)
+      const usd = Number(r.price_usd ?? r.priceUsd ?? 0)
+      return (
+        <div className="text-right">
+          <p className="font-mono text-white text-sm">{eth.toFixed(4)} ETH</p>
+          {usd > 0 && <p className="font-mono text-[var(--text-muted)] text-xs">${usd.toFixed(0)}</p>}
+        </div>
+      )
+    },
   },
   {
     key: 'from', header: 'From',
