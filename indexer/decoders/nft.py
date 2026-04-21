@@ -136,7 +136,11 @@ def _decode_seaport_sale(
     seller = _topic_addr(topics[1])  # offerer = celui qui a listé = vendeur
 
     try:
-        raw = bytes.fromhex(log.get("data", "0x")[2:])
+        data = log.get("data", b"")
+        if isinstance(data, (bytes, bytearray)):
+            raw = bytes(data)
+        else:
+            raw = bytes.fromhex(data[2:] if isinstance(data, str) and data.startswith("0x") else data)
 
         if len(raw) == 0:
             logger.warning(f"Seaport log has empty data — tx {log.get('transactionHash')}")
