@@ -2,7 +2,7 @@ FROM node:20-alpine AS builder
 WORKDIR /app
 # Build context = repo root, so prefix backend/
 COPY backend/package*.json ./
-RUN npm ci
+RUN npm install --production=false
 COPY backend/src        ./src
 COPY backend/tsconfig.json ./
 RUN npm run build
