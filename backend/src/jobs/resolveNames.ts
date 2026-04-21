@@ -43,7 +43,7 @@ async function fetchMetaFromUri(uri: string): Promise<any | null> {
   if (url.startsWith('data:application/json,')) {
     return JSON.parse(decodeURIComponent(url.slice('data:application/json,'.length)))
   }
-  return fetch(url, { signal: AbortSignal.timeout(6_000) }).then(r => r.json()).catch(() => null)
+  return fetch(url, { signal: AbortSignal.timeout(6_000) }).then(r => r.json() as any).catch(() => null)
 }
 
 async function fetchContractImage(address: string): Promise<string | null> {
