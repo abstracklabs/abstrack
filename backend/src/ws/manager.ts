@@ -118,7 +118,7 @@ export class WsManager {
       }
     })
 
-    ws.on('close', (code) => {
+    ws.on('close', (code: number) => {
       const duration = Date.now() - meta.connectedAt
       log.info(
         { code, duration_ms: duration, connections: this.clients.size - 1 },
@@ -127,7 +127,7 @@ export class WsManager {
       this._cleanup(ws, meta)
     })
 
-    ws.on('error', (err) => {
+    ws.on('error', (err: Error) => {
       log.error({ err }, 'Socket error')
       this._cleanup(ws, meta)
       ws.terminate()
