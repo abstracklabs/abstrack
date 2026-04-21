@@ -55,7 +55,8 @@ class Database:
                     self._dsn,
                     min_size=2,
                     max_size=10,
-                    command_timeout=30,       # timeout par query
+                    command_timeout=30,
+                    statement_cache_size=0,   # requis avec PgBouncer (Supabase pooler)
                     server_settings={"application_name": "abstrack-indexer"},
                 )
                 logger.info("PostgreSQL pool connected")
