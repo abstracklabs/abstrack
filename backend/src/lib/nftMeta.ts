@@ -31,11 +31,13 @@ function decodeAbiString(hex: string): string {
   if (raw.length < 128) {
     return Buffer.from(raw.slice(0, 64), 'hex').toString('utf8').replace(/\x00/g, '').trim()
   }
-  const offset = parseInt(raw.slice(0, 64), 16)
-  if (offset === 32) {
-    const strLen = parseInt(raw.slice(64, 128), 16)
-    if (strLen > 0 && strLen < 4096 && raw.length >= 128 + strLen * 2) {
-      return Buffer.from(raw.slice(128, 128 + strLen * 2), 'hex').toString('utf8').trim()
+  // Standard ABI string: offset points to length word
+  const offsetWords = parseInt(raw.slice(0, 64), 16)
+  const lenStart    = offsetWords * 2  // byte offset → char offset in hex
+  if (lenStart + 64 <= raw.length) {
+    const strLen = parseInt(raw.slice(lenStart, lenStart + 64), 16)
+    if (strLen > 0 && strLen < 4096 && raw.length >= lenStart + 64 + strLen * 2) {
+      return Buffer.from(raw.slice(lenStart + 64, lenStart + 64 + strLen * 2), 'hex').toString('utf8').trim()
     }
   }
   return Buffer.from(raw.slice(0, 64), 'hex').toString('utf8').replace(/\x00/g, '').trim()
