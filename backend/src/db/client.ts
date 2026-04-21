@@ -52,7 +52,8 @@ class Database {
       } catch (err) {
         if (attempt === 5) throw err
         const delay = attempt * 2_000
-        log.warn({ err, attempt, delay_ms: delay }, `PG connect attempt ${attempt} failed — retry in ${delay}ms`)
+        const errMsg = err instanceof Error ? err.message : String(err)
+        log.warn({ attempt, delay_ms: delay, error: errMsg }, `PG connect attempt ${attempt} failed — ${errMsg}`)
         await new Promise(r => setTimeout(r, delay))
       }
     }
