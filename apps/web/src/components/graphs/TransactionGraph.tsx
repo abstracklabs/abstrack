@@ -162,9 +162,10 @@ export function TransactionGraph({ address, depth = 2, height = 560, onNodeClick
 
     qt.visit((node, x1, y1, x2, y2) => {
       if (!node.length) {
-        const d = Math.hypot((node.data.x ?? 0) - wx, (node.data.y ?? 0) - wy)
-        const r = rScale(node.data.value)
-        if (d <= r && d < minDist) { minDist = d; found = node.data }
+        const leaf = node as d3.QuadtreeLeaf<SimNode>
+        const d = Math.hypot((leaf.data.x ?? 0) - wx, (leaf.data.y ?? 0) - wy)
+        const r = rScale(leaf.data.value)
+        if (d <= r && d < minDist) { minDist = d; found = leaf.data }
       }
       const r = NODE_RADIUS.max
       return wx < x1 - r || wx > x2 + r || wy < y1 - r || wy > y2 + r
