@@ -333,6 +333,90 @@ class Database:
 
         return bool(await _with_retry(_do))
 
+    async def bulk_insert_transfers(self, transfers: list[dict]) -> int:
+        """
+        Insert en masse via executemany — 100-1000× plus rapide qu'un insert par ligne.
+        Utilisé pendant le catchup pour les blocs à fort volume de transfers.
+        """
+        if not transfers:
+            return 0
+
+        rows = [
+            (
+                t["tx_hash"],
+                t["log_index"],
+                t["block_number"],
+                t["block_ts"],
+                t["collection_addr"].lower(),
+                t["token_id"],
+                t["from_addr"].lower(),
+                t["to_addr"].lower(),
+                t.get("transfer_type", "transfer"),
+                t.get("quantity", 1),
+                t.get("token_standard", "ERC721"),
+            )
+            for t in transfers
+        ]
+
+        async def _do():
+            async with self._pool.acquire() as conn:
+                await conn.executemany(
+                    """
+                    INSERT INTO nft_transfers
+                      (tx_hash, log_index, block_number, block_ts,
+                       collection_addr, token_id, from_addr, to_addr, transfer_type,
+                       quantity, token_standard)
+                    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+                    ON CONFLICT (tx_hash, log_index) DO NOTHING
+                    """,
+                    rows,
+                )
+            return len(rows)
+
+        return int(await _with_retry(_do) or 0)
+
+    async def bulk_insert_sales(self, sales: list[dict]) -> int:
+        """
+        Insert en masse des ventes — utilisé pendant le catchup.
+        Ne rafraîchit pas les stats (skip_stats_refresh implicite).
+        """
+        if not sales:
+            return 0
+
+        rows = [
+            (
+                s["tx_hash"],
+                s["log_index"],
+                s["block_number"],
+                s["block_ts"],
+                s["collection_addr"].lower(),
+                s["token_id"],
+                s["buyer"].lower(),
+                s["seller"].lower(),
+                s.get("price_eth", 0),
+                s.get("price_usd"),
+                s.get("marketplace"),
+            )
+            for s in sales
+        ]
+
+        async def _do():
+            async with self._pool.acquire() as conn:
+                await conn.executemany(
+                    """
+                    INSERT INTO nft_sales
+                      (tx_hash, log_index, block_number, block_ts,
+                       collection_addr, token_id, buyer, seller,
+                       price_eth, price_usd, marketplace)
+                    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+                    ON CONFLICT (tx_hash, log_index) DO NOTHING
+                    """,
+                    rows,
+                )
+            return len(rows)
+
+        return int(await _with_retry(_do) or 0)
+
     # ─── Prix ETH/USD historiques ─────────────────────────────────────────────
 
     async def store_eth_prices(self, prices: list[dict]) -> int:

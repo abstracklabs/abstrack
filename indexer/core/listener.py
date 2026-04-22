@@ -277,24 +277,51 @@ class LiveListener:
             await self.db.mark_range_processed(from_block, to_block)
             return
 
-        # Groupe par bloc + cache timestamps
-        blocks_with_logs: dict[int, list] = {}
-        for log in raw_logs:
-            bn = log.get("blockNumber")
-            bn = int(bn, 16) if isinstance(bn, str) else int(bn)
-            blocks_with_logs.setdefault(bn, []).append(log)
+        # ── Timestamp unique pour tout le batch (1 seul appel RPC au lieu de N) ──
+        # Pour l'historique, la précision au bloc est inutile (prix ETH = journalier).
+        # On prend le bloc du milieu du batch comme timestamp représentatif.
+        mid_block   = (from_block + to_block) // 2
+        batch_ts    = await self._get_block_timestamp(w3, mid_block)
+        eth_usd     = await self._get_eth_price()
+        hist_price  = await self._get_historical_eth_price(batch_ts)
 
-        eth_usd        = await self._get_eth_price()
-        ts_cache: dict[int, datetime] = {}
+        # ── Decode tous les logs et collecter transfers + sales ──────────────────
+        pending_transfers: list[dict] = []
+        pending_sales:     list[dict] = []
+        new_collections:   set[str]   = set()
 
-        for block_num, logs in sorted(blocks_with_logs.items()):
-            if block_num not in ts_cache:
-                ts_cache[block_num] = await self._get_block_timestamp(w3, block_num)
-            block_ts = ts_cache[block_num]
+        for raw_log in raw_logs:
+            log = dict(raw_log)
+            bn  = log.get("blockNumber")
+            bn  = int(bn, 16) if isinstance(bn, str) else int(bn)
 
-            for log in logs:
-                await self._handle_log(dict(log), block_num, block_ts, eth_usd, w3,
-                                       historical=True)
+            try:
+                results = decode_nft_log(log, bn, batch_ts, hist_price)
+            except Exception as e:
+                logger.warning(f"Decode error (block {bn}): {e!r}")
+                continue
+
+            for result in results:
+                kind = result.get("kind")
+                addr = result.get("collection_addr", "")
+                if addr:
+                    new_collections.add(addr.lower())
+                if kind == "transfer":
+                    pending_transfers.append(result)
+                elif kind == "sale":
+                    pending_sales.append(result)
+
+        # ── Upsert collections (batch) + résolution metadata async ───────────────
+        for addr in new_collections:
+            is_new = await self.db.upsert_collection(addr)
+            if is_new:
+                asyncio.create_task(self._resolve_collection_meta(w3, addr))
+
+        # ── Bulk insert transfers et sales (1-2 appels DB au lieu de N) ──────────
+        if pending_transfers:
+            await self.db.bulk_insert_transfers(pending_transfers)
+        if pending_sales:
+            await self.db.bulk_insert_sales(pending_sales)
 
         await self.db.mark_range_processed(from_block, to_block)
 
