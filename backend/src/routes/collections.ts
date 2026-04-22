@@ -48,9 +48,9 @@ export async function collectionsRoutes(app: FastifyInstance) {
          FROM (
            SELECT addr
            FROM (
-             SELECT to_addr   AS addr,  1 AS delta FROM nft_transfers WHERE collection_addr = $1
+             SELECT to_addr   AS addr,  COALESCE(quantity, 1) AS delta FROM nft_transfers WHERE collection_addr = $1
              UNION ALL
-             SELECT from_addr AS addr, -1 AS delta FROM nft_transfers WHERE collection_addr = $1
+             SELECT from_addr AS addr, -COALESCE(quantity, 1) AS delta FROM nft_transfers WHERE collection_addr = $1
            ) t
            WHERE addr != $2
            GROUP BY addr
@@ -174,9 +174,9 @@ export async function collectionsRoutes(app: FastifyInstance) {
     return db.query(
       `SELECT addr, SUM(delta)::int AS holding
        FROM (
-         SELECT to_addr   AS addr,  1 AS delta FROM nft_transfers WHERE collection_addr = $1
+         SELECT to_addr   AS addr,  COALESCE(quantity, 1) AS delta FROM nft_transfers WHERE collection_addr = $1
          UNION ALL
-         SELECT from_addr AS addr, -1 AS delta FROM nft_transfers WHERE collection_addr = $1
+         SELECT from_addr AS addr, -COALESCE(quantity, 1) AS delta FROM nft_transfers WHERE collection_addr = $1
        ) t
        WHERE addr != $2
        GROUP BY addr

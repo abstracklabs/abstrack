@@ -1,9 +1,11 @@
 """
-Décodeur NFT unifié — ERC-721 transfers + Seaport sales (Abstract).
+Décodeur NFT unifié — ERC-721, ERC-1155, Seaport sales (Abstract).
 
 Topics suivis :
-  ERC721_TRANSFER : Transfer(address,address,uint256) — ERC-721 seulement (4 topics)
-  SEAPORT_ORDER   : OrderFulfilled — Seaport 1.x (même ABI toutes versions)
+  ERC721_TRANSFER          : Transfer(address,address,uint256)       — ERC-721 (4 topics)
+  ERC1155_TRANSFER_SINGLE  : TransferSingle(address,address,address,uint256,uint256)
+  ERC1155_TRANSFER_BATCH   : TransferBatch(address,address,address,uint256[],uint256[])
+  SEAPORT_ORDER            : OrderFulfilled — Seaport 1.x
 
 Seaport OrderFulfilled — deux variantes selon déploiement :
 
@@ -24,25 +26,33 @@ Seaport OrderFulfilled — deux variantes selon déploiement :
   ReceivedItem = (uint8 itemType, address token, uint256 identifier, uint256 amount, address recipient)
 
   itemType : 0=ETH natif, 1=ERC20, 2=ERC721, 3=ERC1155, 4=ERC721+criteria, 5=ERC1155+criteria
+
+Retour : decode_nft_log() retourne toujours list[dict] (vide si non reconnu).
+  Chaque dict contient un champ "kind" : "transfer" | "sale".
 """
 
 import logging
 from datetime import datetime
-from typing import Optional
 from eth_abi import decode as abi_decode
 
 logger = logging.getLogger("indexer.decoder")
 
 # ─── Topics ───────────────────────────────────────────────────────────────────
 
-# keccak256("Transfer(address,address,uint256)") — ERC-721 uniquement
+# keccak256("Transfer(address,address,uint256)") — ERC-721 uniquement (4 topics)
 ERC721_TRANSFER = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
 
+# keccak256("TransferSingle(address,address,address,uint256,uint256)")
+ERC1155_TRANSFER_SINGLE = "0xc3d58168c5ae7397731d063d5bbf3d657854427243025f8062be770d6113cf00"
+
+# keccak256("TransferBatch(address,address,address,uint256[],uint256[])")
+ERC1155_TRANSFER_BATCH = "0x4a39dc06d4c0dbc64b70af90fd698a233a518aa5d07e595d983b8c0526c8f7fb"
+
 # keccak256("OrderFulfilled(bytes32,address,address,address,(uint8,address,uint256,uint256)[],(uint8,address,uint256,uint256,address)[])")
-# Identique pour Seaport 1.1 / 1.4 / 1.5 / 1.6 — l'ABI de l'event n'a pas changé.
+# Identique pour Seaport 1.1 / 1.4 / 1.5 / 1.6
 SEAPORT_ORDER = "0x9d9af8e38d66c62e2c12f0225249fd9d721c54b83f48d9352c97c6cacdcbc6f3"
 
-TRACKED_TOPICS = {ERC721_TRANSFER, SEAPORT_ORDER}
+TRACKED_TOPICS = {ERC721_TRANSFER, ERC1155_TRANSFER_SINGLE, ERC1155_TRANSFER_BATCH, SEAPORT_ORDER}
 
 # Contrats Seaport connus → nom de marketplace
 _SEAPORT_CONTRACTS: dict[str, str] = {
@@ -66,35 +76,50 @@ _RECV_ITEM     = "(uint8,address,uint256,uint256,address)"
 _ABI_WITH_HASH = ["bytes32", "address", f"{_SPENT_ITEM}[]", f"{_RECV_ITEM}[]"]
 _ABI_NO_HASH   = ["address",            f"{_SPENT_ITEM}[]", f"{_RECV_ITEM}[]"]
 
+# ABI ERC-1155
+_ABI_1155_SINGLE = ["address", "address", "uint256", "uint256"]   # operator,from,to,id,value (from=topics[2],to=topics[3])
+_ABI_1155_BATCH  = ["address", "address", "uint256[]", "uint256[]"]
+
 
 def decode_nft_log(
     log: dict,
     block_number: int,
     block_ts: datetime,
     eth_usd: float,
-) -> Optional[dict]:
+) -> list[dict]:
+    """
+    Décode un log Ethereum en événement(s) NFT.
+    Retourne une liste (vide si non reconnu, plusieurs éléments pour ERC-1155 Batch).
+    """
     topics = log.get("topics", [])
     if not topics:
-        return None
+        return []
 
     topic0 = _topic_hex(topics[0])
-    if not topic0.startswith("0x"):
-        topic0 = "0x" + topic0
 
     if topic0 == ERC721_TRANSFER:
-        return _decode_erc721(log, topics, block_number, block_ts)
+        r = _decode_erc721(log, topics, block_number, block_ts)
+        return [r] if r else []
+
+    if topic0 == ERC1155_TRANSFER_SINGLE:
+        r = _decode_erc1155_single(log, topics, block_number, block_ts)
+        return [r] if r else []
+
+    if topic0 == ERC1155_TRANSFER_BATCH:
+        return _decode_erc1155_batch(log, topics, block_number, block_ts)
 
     if topic0 == SEAPORT_ORDER:
-        return _decode_seaport_sale(log, topics, block_number, block_ts, eth_usd)
+        r = _decode_seaport_sale(log, topics, block_number, block_ts, eth_usd)
+        return [r] if r else []
 
-    return None
+    return []
 
 
 # ─── ERC-721 Transfer ────────────────────────────────────────────────────────
 
-def _decode_erc721(log: dict, topics: list, block_number: int, block_ts: datetime) -> Optional[dict]:
+def _decode_erc721(log: dict, topics: list, block_number: int, block_ts: datetime):
     # ERC-721 : exactement 4 topics (sig + from + to + tokenId indexé)
-    # ERC-20  : 3 topics (tokenId dans data, pas indexé) → ignoré
+    # ERC-20  : 3 topics (tokenId dans data) → ignoré
     if len(topics) != 4:
         return None
 
@@ -121,7 +146,103 @@ def _decode_erc721(log: dict, topics: list, block_number: int, block_ts: datetim
         "from_addr":       from_addr,
         "to_addr":         to_addr,
         "transfer_type":   transfer_type,
+        "quantity":        1,
+        "token_standard":  "ERC721",
     }
+
+
+# ─── ERC-1155 TransferSingle ─────────────────────────────────────────────────
+
+def _decode_erc1155_single(log: dict, topics: list, block_number: int, block_ts: datetime):
+    # TransferSingle(address operator, address from, address to, uint256 id, uint256 value)
+    # topics : [sig, operator(indexed), from(indexed), to(indexed)]
+    # data   : abi_encode(uint256 id, uint256 value)
+    if len(topics) < 4:
+        return None
+
+    from_addr  = _topic_addr(topics[2])
+    to_addr    = _topic_addr(topics[3])
+    collection = _normalize_addr(log.get("address", ""))
+
+    try:
+        raw = _log_data_bytes(log)
+        token_id, value = abi_decode(["uint256", "uint256"], raw)
+    except Exception as e:
+        logger.debug(f"ERC1155 TransferSingle decode failed — tx {log.get('transactionHash')}: {e!r}")
+        return None
+
+    if from_addr == ZERO_ADDR:
+        transfer_type = "mint"
+    elif to_addr == ZERO_ADDR:
+        transfer_type = "burn"
+    else:
+        transfer_type = "transfer"
+
+    return {
+        "kind":            "transfer",
+        "tx_hash":         _normalize_hash(log.get("transactionHash", "")),
+        "log_index":       _parse_log_index(log),
+        "block_number":    block_number,
+        "block_ts":        block_ts,
+        "collection_addr": collection,
+        "token_id":        str(token_id),
+        "from_addr":       from_addr,
+        "to_addr":         to_addr,
+        "transfer_type":   transfer_type,
+        "quantity":        int(value),
+        "token_standard":  "ERC1155",
+    }
+
+
+# ─── ERC-1155 TransferBatch ───────────────────────────────────────────────────
+
+def _decode_erc1155_batch(log: dict, topics: list, block_number: int, block_ts: datetime) -> list[dict]:
+    # TransferBatch(address operator, address from, address to, uint256[] ids, uint256[] values)
+    # topics : [sig, operator(indexed), from(indexed), to(indexed)]
+    # data   : abi_encode(uint256[] ids, uint256[] values)
+    if len(topics) < 4:
+        return []
+
+    from_addr  = _topic_addr(topics[2])
+    to_addr    = _topic_addr(topics[3])
+    collection = _normalize_addr(log.get("address", ""))
+    tx_hash    = _normalize_hash(log.get("transactionHash", ""))
+    base_idx   = _parse_log_index(log)
+
+    if from_addr == ZERO_ADDR:
+        transfer_type = "mint"
+    elif to_addr == ZERO_ADDR:
+        transfer_type = "burn"
+    else:
+        transfer_type = "transfer"
+
+    try:
+        raw = _log_data_bytes(log)
+        ids, values = abi_decode(["uint256[]", "uint256[]"], raw)
+    except Exception as e:
+        logger.debug(f"ERC1155 TransferBatch decode failed — tx {log.get('transactionHash')}: {e!r}")
+        return []
+
+    results = []
+    for i, (token_id, value) in enumerate(zip(ids, values)):
+        results.append({
+            "kind":            "transfer",
+            "tx_hash":         tx_hash,
+            # Sous-index synthétique pour éviter les conflits sur (tx_hash, log_index)
+            # On utilise base_idx * 10000 + i pour rester dans un int raisonnable
+            "log_index":       base_idx * 10_000 + i,
+            "block_number":    block_number,
+            "block_ts":        block_ts,
+            "collection_addr": collection,
+            "token_id":        str(token_id),
+            "from_addr":       from_addr,
+            "to_addr":         to_addr,
+            "transfer_type":   transfer_type,
+            "quantity":        int(value),
+            "token_standard":  "ERC1155",
+        })
+
+    return results
 
 
 # ─── Seaport OrderFulfilled ───────────────────────────────────────────────────
@@ -132,17 +253,15 @@ def _decode_seaport_sale(
     block_number: int,
     block_ts: datetime,
     eth_usd: float,
-) -> Optional[dict]:
+):
     n_topics = len(topics)
 
-    # Variante A (Abstract) : 3 topics — orderHash NON indexé, dans data
-    # Variante B (standard) : 4 topics — orderHash indexé en topics[1]
     if n_topics == 3:
-        seller = _topic_addr(topics[1])   # offerer = topics[1]
-        abi    = _ABI_WITH_HASH           # data commence par bytes32 orderHash
+        seller = _topic_addr(topics[1])
+        abi    = _ABI_WITH_HASH
     elif n_topics == 4:
-        seller = _topic_addr(topics[2])   # offerer = topics[2] (topics[1] = orderHash)
-        abi    = _ABI_NO_HASH             # data commence directement par recipient
+        seller = _topic_addr(topics[2])
+        abi    = _ABI_NO_HASH
     else:
         logger.debug(
             f"Seaport log with unexpected topic count {n_topics} — "
@@ -151,14 +270,8 @@ def _decode_seaport_sale(
         return None
 
     try:
-        data = log.get("data", b"")
-        if isinstance(data, (bytes, bytearray)):
-            raw = bytes(data)
-        else:
-            s = data if isinstance(data, str) else str(data)
-            raw = bytes.fromhex(s[2:] if s.startswith("0x") else s)
-
-        if len(raw) == 0:
+        raw = _log_data_bytes(log)
+        if not raw:
             logger.warning(f"Seaport log has empty data — tx {log.get('transactionHash')}")
             return None
 
@@ -171,7 +284,6 @@ def _decode_seaport_sale(
 
         buyer = recipient.lower()
 
-        # Premier NFT dans l'offer (itemType 2/3/4/5)
         nft_item = next(
             (item for item in offer if item[0] in NFT_ITEM_TYPES),
             None,
@@ -187,12 +299,11 @@ def _decode_seaport_sale(
         collection = nft_token.lower()
         token_id   = str(nft_id)
 
-        # Prix = somme ETH natif + WETH dans la consideration (total payé par le buyer)
         price_wei = sum(
             amount
             for item_type, token, _id, amount, _recv in consideration
-            if item_type == 0                                         # ETH natif
-            or (item_type == 1 and token.lower() == WETH_ABSTRACT)   # WETH
+            if item_type == 0
+            or (item_type == 1 and token.lower() == WETH_ABSTRACT)
         )
         price_eth = price_wei / WEI
 
@@ -206,7 +317,6 @@ def _decode_seaport_sale(
 
     price_usd = round(price_eth * eth_usd, 4) if eth_usd and price_eth > 0 else None
 
-    # Détection marketplace via l'adresse du contrat émetteur
     contract_addr = _normalize_addr(log.get("address", ""))
     marketplace   = _SEAPORT_CONTRACTS.get(contract_addr, "seaport")
 
@@ -233,6 +343,14 @@ def _decode_seaport_sale(
 
 # ─── Helpers ─────────────────────────────────────────────────────────────────
 
+def _log_data_bytes(log: dict) -> bytes:
+    """Convertit log['data'] en bytes bruts."""
+    data = log.get("data", b"")
+    if isinstance(data, (bytes, bytearray)):
+        return bytes(data)
+    s = data if isinstance(data, str) else str(data)
+    return bytes.fromhex(s[2:] if s.startswith("0x") else s)
+
 def _topic_hex(t) -> str:
     """Convertit un topic en hex string avec préfixe 0x."""
     if isinstance(t, (bytes, bytearray)):
@@ -243,7 +361,6 @@ def _topic_hex(t) -> str:
 def _topic_addr(t) -> str:
     """Extrait une adresse Ethereum (20 octets) depuis un topic de 32 octets."""
     h = _topic_hex(t)
-    # h = "0x" + 64 hex chars ; on garde les 40 derniers (20 octets d'adresse)
     return "0x" + h[-40:].lower()
 
 def _normalize_addr(a) -> str:

@@ -11,6 +11,7 @@ Robustesse :
 import asyncio
 import asyncpg
 import logging
+from datetime import date
 from typing import Optional
 
 logger = logging.getLogger("indexer.db")
@@ -74,24 +75,14 @@ class Database:
             logger.info("PostgreSQL pool closed")
 
     # ─── Suivi des plages indexées ────────────────────────────────────────────
-    #
-    # On enregistre des plages [from_block, to_block] plutôt que des blocs
-    # individuels pour rester compact. L'indexer appelle mark_range_processed()
-    # à la fin de chaque session de traitement (catchup ou live par lot).
 
     async def mark_range_processed(self, from_block: int, to_block: int) -> None:
-        """
-        Enregistre une plage de blocs comme indexée.
-        Fusionne automatiquement avec les plages adjacentes pour éviter
-        la fragmentation de la table indexed_block_ranges.
-        """
         if from_block > to_block:
             return
 
         async def _do():
             async with self._pool.acquire() as conn:
                 async with conn.transaction():
-                    # Cherche les plages adjacentes ou chevauchantes
                     rows = await conn.fetch(
                         """
                         SELECT id, from_block, to_block
@@ -104,23 +95,18 @@ class Database:
                     )
 
                     if rows:
-                        # Fusionne avec les plages existantes
                         merged_from = min(from_block, rows[0]["from_block"])
                         merged_to   = max(to_block,   rows[-1]["to_block"])
                         ids         = [r["id"] for r in rows]
-
-                        # Supprime les anciennes plages
                         await conn.execute(
                             "DELETE FROM indexed_block_ranges WHERE id = ANY($1::bigint[])",
                             ids,
                         )
-                        # Insère la plage fusionnée
                         await conn.execute(
                             "INSERT INTO indexed_block_ranges (from_block, to_block) VALUES ($1, $2)",
                             merged_from, merged_to,
                         )
                     else:
-                        # Nouvelle plage sans voisin
                         await conn.execute(
                             "INSERT INTO indexed_block_ranges (from_block, to_block) VALUES ($1, $2)",
                             from_block, to_block,
@@ -130,10 +116,6 @@ class Database:
         logger.debug(f"Range marked: [{from_block}–{to_block}]")
 
     async def find_gaps(self, from_block: int, to_block: int) -> list[dict]:
-        """
-        Retourne les trous de blocs entre from_block et to_block.
-        Chaque trou : {"gap_from": int, "gap_to": int, "gap_size": int}
-        """
         async with self._pool.acquire() as conn:
             rows = await conn.fetch(
                 "SELECT gap_from, gap_to, gap_size FROM find_indexer_gaps($1, $2)",
@@ -142,7 +124,6 @@ class Database:
         return [dict(r) for r in rows]
 
     async def get_indexed_ranges(self) -> list[dict]:
-        """Retourne toutes les plages indexées (pour diagnostic)."""
         async with self._pool.acquire() as conn:
             rows = await conn.fetch(
                 "SELECT from_block, to_block, (to_block - from_block + 1) AS size "
@@ -151,7 +132,6 @@ class Database:
         return [dict(r) for r in rows]
 
     # ─── Checkpoint ──────────────────────────────────────────────────────────
-    # UPSERT au lieu de UPDATE pur — résiste si la row est absente
 
     async def get_last_block(self) -> int:
         async with self._pool.acquire() as conn:
@@ -175,10 +155,8 @@ class Database:
         await _with_retry(_do)
 
     # ─── Generic state store ─────────────────────────────────────────────────
-    # Utilisé pour persister l'état de réindexation à travers les redémarrages.
 
     async def get_state(self, key: str) -> Optional[str]:
-        """Lit une valeur arbitraire depuis indexer_state. Retourne None si absente."""
         async with self._pool.acquire() as conn:
             row = await conn.fetchrow(
                 "SELECT value FROM indexer_state WHERE key = $1", key
@@ -186,7 +164,6 @@ class Database:
             return row["value"] if row else None
 
     async def set_state(self, key: str, value: str) -> None:
-        """Écrit (upsert) une valeur dans indexer_state."""
         async def _do():
             async with self._pool.acquire() as conn:
                 await conn.execute(
@@ -201,7 +178,6 @@ class Database:
         await _with_retry(_do)
 
     async def delete_state(self, key: str) -> None:
-        """Supprime une clé de indexer_state (idempotent)."""
         async def _do():
             async with self._pool.acquire() as conn:
                 await conn.execute(
@@ -212,7 +188,6 @@ class Database:
     # ─── Collections ─────────────────────────────────────────────────────────
 
     async def upsert_collection(self, address: str) -> bool:
-        """Insère une collection. Retourne True si c'est une nouvelle collection."""
         async def _do():
             async with self._pool.acquire() as conn:
                 result = await conn.execute(
@@ -227,17 +202,13 @@ class Database:
         return bool(await _with_retry(_do))
 
     async def get_unnamed_collections(self) -> list[str]:
-        """Retourne les adresses des collections sans nom (pour backfill au démarrage).
-        Inclut les lignes avec name='' (résolution précédente échouée silencieusement).
-        """
         async with self._pool.acquire() as conn:
             rows = await conn.fetch(
-                "SELECT address FROM collections WHERE name IS NULL OR trim(name) = '' LIMIT 200"
+                "SELECT address FROM collections WHERE name IS NULL OR trim(name) = '' LIMIT 500"
             )
         return [r["address"] for r in rows]
 
     async def update_collection_meta(self, address: str, name: str, symbol: str) -> None:
-        """Met à jour le nom et symbole d'une collection."""
         async def _do():
             async with self._pool.acquire() as conn:
                 await conn.execute(
@@ -251,6 +222,19 @@ class Database:
             await _with_retry(_do)
         except Exception as e:
             logger.warning(f"update_collection_meta failed for {address}: {e!r}")
+
+    async def update_collection_supply(self, address: str, total_supply: int) -> None:
+        """Met à jour le total_supply d'une collection (résolu via eth_call totalSupply())."""
+        async def _do():
+            async with self._pool.acquire() as conn:
+                await conn.execute(
+                    "UPDATE collections SET total_supply = $2 WHERE address = $1 AND total_supply IS NULL",
+                    address.lower(), total_supply,
+                )
+        try:
+            await _with_retry(_do)
+        except Exception as e:
+            logger.debug(f"update_collection_supply failed for {address}: {e!r}")
 
     # ─── NFT Sales ───────────────────────────────────────────────────────────
 
@@ -285,11 +269,10 @@ class Database:
                     sale.get("price_usd"),
                     sale.get("marketplace", "unknown"),
                 )
-                return result == "INSERT 0 1"  # True = nouvelle ligne, False = conflit
+                return result == "INSERT 0 1"
 
         inserted = await _with_retry(_do)
         if inserted and not skip_stats_refresh:
-            # Refresh stats seulement si insertion réelle ET pas en catchup historique
             await self._refresh_stats(sale["collection_addr"].lower())
         return bool(inserted)
 
@@ -300,30 +283,24 @@ class Database:
         try:
             await _with_retry(_do)
         except Exception as e:
-            # Non-critique : les stats seront correctes au prochain cycle
             logger.warning(f"refresh_collection_stats failed for {addr}: {e!r}")
 
     async def refresh_all_collection_stats(self) -> int:
         """
-        Recalcule les stats 24h de toutes les collections.
-        Appelé une seule fois après la fin du catchup historique
-        (les stats ont été skippées pendant l'indexation pour éviter de les remettre à zéro).
-        Retourne le nombre de collections mises à jour.
+        Recalcule les stats 24h de toutes les collections en un seul pass.
+        Utilise rebuild_all_stats() (bulk UPDATE...FROM) au lieu de N appels séparés.
+        Appelé après la fin du catchup historique.
         """
         async def _do():
             async with self._pool.acquire() as conn:
-                rows = await conn.fetch("SELECT address FROM collections")
-                updated = 0
-                for row in rows:
-                    await conn.execute("SELECT refresh_collection_stats($1)", row["address"])
-                    updated += 1
-                return updated
+                row = await conn.fetchrow("SELECT rebuild_all_stats()")
+                return int(row[0]) if row and row[0] is not None else 0
         try:
             count = await _with_retry(_do)
-            logger.info(f"refresh_all_collection_stats: {count} collections updated")
+            logger.info(f"rebuild_all_stats: {count} collections updated")
             return count or 0
         except Exception as e:
-            logger.warning(f"refresh_all_collection_stats failed: {e!r}")
+            logger.warning(f"rebuild_all_stats failed: {e!r}")
             return 0
 
     # ─── NFT Transfers ────────────────────────────────────────────────────────
@@ -335,8 +312,9 @@ class Database:
                     """
                     INSERT INTO nft_transfers
                       (tx_hash, log_index, block_number, block_ts,
-                       collection_addr, token_id, from_addr, to_addr, transfer_type)
-                    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+                       collection_addr, token_id, from_addr, to_addr, transfer_type,
+                       quantity, token_standard)
+                    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
                     ON CONFLICT (tx_hash, log_index) DO NOTHING
                     """,
                     transfer["tx_hash"],
@@ -348,7 +326,65 @@ class Database:
                     transfer["from_addr"].lower(),
                     transfer["to_addr"].lower(),
                     transfer.get("transfer_type", "transfer"),
+                    transfer.get("quantity", 1),
+                    transfer.get("token_standard", "ERC721"),
                 )
                 return result == "INSERT 0 1"
 
         return bool(await _with_retry(_do))
+
+    # ─── Prix ETH/USD historiques ─────────────────────────────────────────────
+
+    async def store_eth_prices(self, prices: list[dict]) -> int:
+        """
+        Upsert des prix ETH/USD journaliers.
+        prices = [{"date": date, "price_usd": float}, ...]
+        Retourne le nombre de lignes insérées (pas les mises à jour).
+        """
+        if not prices:
+            return 0
+
+        async def _do():
+            async with self._pool.acquire() as conn:
+                inserted = 0
+                for p in prices:
+                    result = await conn.execute(
+                        """
+                        INSERT INTO eth_price_history (date, price_usd)
+                        VALUES ($1, $2)
+                        ON CONFLICT (date) DO UPDATE
+                          SET price_usd = EXCLUDED.price_usd, updated_at = now()
+                        """,
+                        p["date"], p["price_usd"],
+                    )
+                    if result == "INSERT 0 1":
+                        inserted += 1
+                return inserted
+
+        try:
+            return await _with_retry(_do) or 0
+        except Exception as e:
+            logger.warning(f"store_eth_prices failed: {e!r}")
+            return 0
+
+    async def get_latest_eth_price_date(self) -> Optional[date]:
+        """Retourne la date la plus récente dans eth_price_history, ou None."""
+        try:
+            async with self._pool.acquire() as conn:
+                row = await conn.fetchrow("SELECT MAX(date) AS d FROM eth_price_history")
+            return row["d"] if row and row["d"] else None
+        except Exception:
+            return None
+
+    async def get_eth_price_at(self, d: date) -> float:
+        """
+        Retourne le prix ETH/USD (float) pour une date donnée.
+        Utilise get_eth_price_at() SQL qui retourne le prix le plus proche.
+        Retourne 0.0 si aucun prix disponible.
+        """
+        try:
+            async with self._pool.acquire() as conn:
+                row = await conn.fetchrow("SELECT get_eth_price_at($1)", d)
+            return float(row[0]) if row and row[0] is not None else 0.0
+        except Exception:
+            return 0.0

@@ -99,9 +99,9 @@ export async function walletsRoutes(app: FastifyInstance) {
        FROM (
          SELECT collection_addr, token_id, SUM(delta) AS balance
          FROM (
-           SELECT collection_addr, token_id,  1 AS delta FROM nft_transfers WHERE to_addr   = $1
+           SELECT collection_addr, token_id,  COALESCE(quantity, 1) AS delta FROM nft_transfers WHERE to_addr   = $1
            UNION ALL
-           SELECT collection_addr, token_id, -1 AS delta FROM nft_transfers WHERE from_addr = $1
+           SELECT collection_addr, token_id, -COALESCE(quantity, 1) AS delta FROM nft_transfers WHERE from_addr = $1
          ) moves
          GROUP BY collection_addr, token_id
          HAVING SUM(delta) > 0

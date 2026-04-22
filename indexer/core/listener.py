@@ -16,7 +16,9 @@ Corrections critiques :
   - FORCE_REINDEX persisté en DB → résiste aux redémarrages container mid-catchup
   - _catchup boucle jusqu'à être à < 500 blocs de la tête → pas de gap post-catchup
   - Timestamp mis en cache par bloc dans un batch → pas de double fetch
-  - price_usd = None pour les blocs historiques (pas de prix ETH historique)
+  - Prix ETH/USD historiques lus depuis eth_price_history → price_usd correct
+  - ERC-1155 TransferSingle/Batch supportés → holder count correct
+  - total_supply résolu via eth_call → stats collection complètes
   - Throttle configurable entre les batches
 """
 
@@ -33,6 +35,7 @@ from web3.providers import AsyncHTTPProvider, WebSocketProvider
 
 from core.integrity import GapDetector
 from decoders.nft import decode_nft_log, TRACKED_TOPICS
+from jobs.price_history import ensure_eth_price_history
 from storage.db import Database
 
 logger = logging.getLogger("indexer.listener")
@@ -49,7 +52,7 @@ START_BLOCK       = int(os.environ.get("INDEXER_START_BLOCK", "0"))
 FORCE_REINDEX     = os.environ.get("INDEXER_FORCE_REINDEX", "false").lower() in ("1", "true", "yes")
 BATCH_SLEEP_S     = float(os.environ.get("CATCHUP_BATCH_SLEEP_MS", "100")) / 1000.0
 
-# Clé de session dans indexer_state — distingue un nouveau reindex d'une reprise
+# Clé de session dans indexer_state
 _REINDEX_SESSION_KEY = "reindex_session"
 
 
@@ -66,6 +69,10 @@ class LiveListener:
         self._eth_usd:    float = 0.0
         self._eth_usd_ts: float = 0.0
         self._http_session: Optional[aiohttp.ClientSession] = None
+
+        # Cache des prix ETH historiques par date (str "YYYY-MM-DD" → float)
+        # Évite un appel DB par log lors du catchup
+        self._hist_price_cache: dict[str, float] = {}
 
     async def start(self):
         self._running = True
@@ -99,18 +106,20 @@ class LiveListener:
         w3_http = AsyncWeb3(AsyncHTTPProvider(self.rpc_http))
         logger.info("Connected to Abstract node (HTTP)")
 
-        # CRITIQUE 1 FIX : FORCE_REINDEX persisté en DB
-        # On ne remet le checkpoint à 0 qu'à la PREMIÈRE exécution du reindex.
-        # Les redémarrages container mid-catchup reprennent depuis le checkpoint.
+        # 0. Prix ETH historiques — nécessaires pour price_usd correct des ventes passées
+        logger.info("Loading ETH price history from CoinGecko…")
+        await ensure_eth_price_history(self.db, self._http_session)
+
+        # 1. FORCE_REINDEX persisté en DB
         await self._maybe_force_reindex()
 
-        # Backfill noms manquants
+        # 2. Backfill noms manquants
         await self._backfill_collection_names(w3_http)
 
-        # CRITIQUE 2 FIX : boucle jusqu'à être à < CATCHUP_LAG_TARGET blocs de la tête
+        # 3. Catchup jusqu'à être synced
         await self._catchup_until_synced(w3_http)
 
-        # Live via WebSocket
+        # 4. Live via WebSocket
         async with AsyncWeb3(WebSocketProvider(self.rpc_wss)) as w3:
             logger.info("Connected to Abstract node (WebSocket live)")
 
@@ -131,23 +140,17 @@ class LiveListener:
                 block_num = int(raw_num, 16) if isinstance(raw_num, str) else int(raw_num)
                 await self._process_block(w3, block_num)
 
-    # ─── CRITIQUE 1 : FORCE_REINDEX avec persistance DB ──────────────────────
+    # ─── FORCE_REINDEX avec persistance DB ──────────────────────────────────
 
     async def _maybe_force_reindex(self):
-        """
-        Réinitialise le checkpoint seulement si c'est un nouveau reindex,
-        pas si on reprend après un redémarrage mid-catchup.
-        """
         if not FORCE_REINDEX:
             return
 
-        # Vérifie si un reindex est déjà en cours (session existante en DB)
         session_ts = await self.db.get_state(_REINDEX_SESSION_KEY)
         if session_ts:
             logger.info(f"FORCE_REINDEX: reindex already in progress (started {session_ts}) — resuming")
             return
 
-        # Nouveau reindex : remet le checkpoint à START_BLOCK - 1
         reset_to = max(0, START_BLOCK - 1)
         await self.db.save_checkpoint(reset_to)
         await self.db.set_state(_REINDEX_SESSION_KEY, datetime.now(timezone.utc).isoformat())
@@ -155,27 +158,24 @@ class LiveListener:
 
     async def _finish_reindex_session(self):
         """
-        Tâches de finalisation après le catchup :
-        1. Recalcule les stats 24h de toutes les collections (skippées pendant le catchup).
+        Finalisation post-catchup :
+        1. Reconstruit toutes les stats collections (rebuild_all_stats — un seul pass SQL).
         2. Supprime la clé de session FORCE_REINDEX.
         """
-        logger.info("Catchup complete — refreshing all collection stats…")
+        logger.info("Catchup complete — rebuilding all collection stats (rebuild_all_stats)…")
         try:
-            await self.db.refresh_all_collection_stats()
+            updated = await self.db.refresh_all_collection_stats()
+            logger.info(f"rebuild_all_stats: {updated} collections updated")
         except Exception as e:
-            logger.warning(f"refresh_all_collection_stats failed: {e!r}")
+            logger.warning(f"rebuild_all_stats failed: {e!r}")
 
         if FORCE_REINDEX:
             await self.db.delete_state(_REINDEX_SESSION_KEY)
             logger.info("Reindex session complete — FORCE_REINDEX session cleared")
 
-    # ─── CRITIQUE 2 : Catchup complet (boucle jusqu'à la tête) ──────────────
+    # ─── Catchup complet (boucle jusqu'à la tête) ────────────────────────────
 
     async def _catchup_until_synced(self, w3: AsyncWeb3):
-        """
-        Boucle _catchup jusqu'à être à < CATCHUP_LAG_TARGET blocs de la tête.
-        Garantit qu'aucun bloc n'est manqué entre la fin du catchup et le live.
-        """
         pass_num = 1
         while self._running:
             last    = await self.db.get_last_block()
@@ -207,8 +207,6 @@ class LiveListener:
                 return
             start = last + 1
 
-        # On ne va pas au-delà du bloc courant au moment où on commence
-        # (les blocs suivants seront traités au prochain pass ou en live)
         target = current
 
         if start > target:
@@ -243,7 +241,6 @@ class LiveListener:
 
             n = batch_end + 1
 
-            # SIGNIFICATIF 3 FIX : throttle RPC
             if BATCH_SLEEP_S > 0:
                 await asyncio.sleep(BATCH_SLEEP_S)
 
@@ -257,11 +254,6 @@ class LiveListener:
     # ─── Traitement d'un batch de blocs ──────────────────────────────────────
 
     async def _process_block_range(self, w3: AsyncWeb3, from_block: int, to_block: int):
-        """
-        eth_getLogs sur [from_block, to_block] avec topics trackés.
-        Split récursif sur timeout/erreur.
-        Cache des timestamps pour éviter les double-fetch (MINEUR 1 FIX).
-        """
         try:
             raw_logs = await asyncio.wait_for(
                 w3.eth.get_logs({
@@ -273,9 +265,6 @@ class LiveListener:
             )
         except Exception as e:
             if from_block == to_block:
-                # Bloc individuel irrécupérable : on skippe sans sauvegarder de checkpoint.
-                # La boucle _catchup appellera save_checkpoint(batch_end) après le retour,
-                # créant un trou dans indexed_block_ranges que GapDetector récupérera.
                 logger.warning(f"Block {from_block} get_logs failed permanently: {e!r} — skipping")
                 return
             logger.debug(f"Batch {from_block}-{to_block} failed ({type(e).__name__}) — splitting")
@@ -288,7 +277,7 @@ class LiveListener:
             await self.db.mark_range_processed(from_block, to_block)
             return
 
-        # Groupe par bloc + cache timestamps (MINEUR 1 FIX)
+        # Groupe par bloc + cache timestamps
         blocks_with_logs: dict[int, list] = {}
         for log in raw_logs:
             bn = log.get("blockNumber")
@@ -296,7 +285,7 @@ class LiveListener:
             blocks_with_logs.setdefault(bn, []).append(log)
 
         eth_usd        = await self._get_eth_price()
-        ts_cache: dict[int, datetime] = {}  # cache local au batch
+        ts_cache: dict[int, datetime] = {}
 
         for block_num, logs in sorted(blocks_with_logs.items()):
             if block_num not in ts_cache:
@@ -344,7 +333,6 @@ class LiveListener:
             logger.info(f"Block {block_num} — {len(raw_logs) if raw_logs else 0} relevant logs")
 
     async def _get_block_timestamp(self, w3: AsyncWeb3, block_num: int) -> datetime:
-        """Fetch timestamp avec retry — ne tombe jamais en fallback now()."""
         for attempt in range(4):
             try:
                 block = await asyncio.wait_for(w3.eth.get_block(block_num), timeout=15.0)
@@ -367,36 +355,49 @@ class LiveListener:
                           eth_usd: float, w3_ref: AsyncWeb3 = None,
                           historical: bool = False):
         try:
-            # price_usd=None pour les blocs historiques : on n'a pas le prix ETH d'époque,
-            # stocker le prix actuel fausserait toutes les stats USD historiques.
-            effective_eth_usd = 0.0 if historical else eth_usd
-            result = decode_nft_log(log, block_num, block_ts, effective_eth_usd)
+            # Prix ETH/USD : prix du moment pour les blocs live,
+            # prix historique depuis eth_price_history pour les blocs passés.
+            if historical:
+                effective_eth_usd = await self._get_historical_eth_price(block_ts)
+            else:
+                effective_eth_usd = eth_usd
+
+            results = decode_nft_log(log, block_num, block_ts, effective_eth_usd)
         except Exception as e:
             logger.warning(f"Decode error (block {block_num}, tx {log.get('transactionHash')}): {e!r}")
             return
 
-        if not result:
-            return
+        for result in results:
+            try:
+                kind = result["kind"]
+                if kind == "sale":
+                    is_new = await self.db.upsert_collection(result["collection_addr"])
+                    if is_new:
+                        await self._resolve_collection_meta(w3_ref, result["collection_addr"])
+                    inserted = await self.db.insert_sale(result, skip_stats_refresh=historical)
+                    if inserted:
+                        logger.debug(f"Sale inserted: {result['tx_hash']} — {result['price_eth']:.3f} ETH")
+                elif kind == "transfer":
+                    is_new = await self.db.upsert_collection(result["collection_addr"])
+                    if is_new:
+                        await self._resolve_collection_meta(w3_ref, result["collection_addr"])
+                    await self.db.insert_transfer(result)
+            except Exception as e:
+                logger.error(
+                    f"DB insert error (block {block_num}, tx {log.get('transactionHash')}): {e!r}"
+                )
 
-        try:
-            kind = result["kind"]
-            if kind == "sale":
-                is_new = await self.db.upsert_collection(result["collection_addr"])
-                if is_new:
-                    # En mode historique on résout quand même le nom (appel unique par collection)
-                    await self._resolve_collection_meta(w3_ref, result["collection_addr"])
-                inserted = await self.db.insert_sale(result, skip_stats_refresh=historical)
-                if inserted:
-                    logger.debug(f"Sale inserted: {result['tx_hash']} — {result['price_eth']:.3f} ETH")
-            elif kind == "transfer":
-                is_new = await self.db.upsert_collection(result["collection_addr"])
-                if is_new:
-                    await self._resolve_collection_meta(w3_ref, result["collection_addr"])
-                await self.db.insert_transfer(result)
-        except Exception as e:
-            logger.error(
-                f"DB insert error (block {block_num}, tx {log.get('transactionHash')}): {e!r}"
-            )
+    # ─── Prix ETH historique (depuis DB, avec cache) ──────────────────────────
+
+    async def _get_historical_eth_price(self, block_ts: datetime) -> float:
+        """
+        Retourne le prix ETH/USD pour la date d'un bloc historique.
+        Cache par date → un seul appel DB par jour (pas par log).
+        """
+        date_str = block_ts.strftime("%Y-%m-%d")
+        if date_str not in self._hist_price_cache:
+            self._hist_price_cache[date_str] = await self.db.get_eth_price_at(block_ts.date())
+        return self._hist_price_cache[date_str]
 
     # ─── Backfill noms de collections ────────────────────────────────────────
 
@@ -412,17 +413,22 @@ class LiveListener:
         except Exception as e:
             logger.warning(f"Backfill collection names failed: {e!r}")
 
-    # ─── Résolution nom/symbole ERC-721 ──────────────────────────────────────
+    # ─── Résolution nom/symbole + totalSupply ERC-721 ────────────────────────
 
     async def _resolve_collection_meta(self, w3: AsyncWeb3, address: str) -> None:
         if not w3:
             return
         try:
-            name   = await self._eth_call_string(w3, address, "0x06fdde03")
-            symbol = await self._eth_call_string(w3, address, "0x95d89b41")
+            name   = await self._eth_call_string(w3, address, "0x06fdde03")   # name()
+            symbol = await self._eth_call_string(w3, address, "0x95d89b41")   # symbol()
             if name or symbol:
                 await self.db.update_collection_meta(address, name or "", symbol or "")
                 logger.info(f"Collection meta resolved: {address} → {name!r} ({symbol!r})")
+
+            # totalSupply() — selector 0x18160ddd
+            supply = await self._eth_call_uint256(w3, address, "0x18160ddd")
+            if supply and supply > 0:
+                await self.db.update_collection_supply(address, supply)
         except Exception as e:
             logger.debug(f"Could not resolve meta for {address}: {e!r}")
 
@@ -436,10 +442,7 @@ class LiveListener:
             if not data:
                 return ""
 
-            # ABI standard : data[0:32] = offset (en bytes) vers la longueur de la string.
-            # L'offset minimum valide est 32 (une seule valeur dynamique).
-            # Certains contrats non-standards retournent offset != 32 (ex : 0x40, 0x60).
-            # On décode correctement quel que soit l'offset.
+            # ABI standard : offset en bytes vers la longueur de la string
             if len(data) >= 64:
                 offset = int.from_bytes(data[0:32], "big")
                 if 32 <= offset < len(data) - 32:
@@ -453,7 +456,7 @@ class LiveListener:
                             .strip()[:128]
                         )
 
-            # Fallback : encodage bytes32 (contrats anciens qui retournent la string brute)
+            # Fallback bytes32 (contrats anciens)
             if len(data) >= 32:
                 return data[:32].rstrip(b"\x00").decode("utf-8", errors="ignore").strip()[:128]
             return ""
@@ -461,7 +464,21 @@ class LiveListener:
             logger.debug(f"eth_call_string failed for {address} sel={selector}: {e!r}")
             return ""
 
-    # ─── Prix ETH/USD ─────────────────────────────────────────────────────────
+    async def _eth_call_uint256(self, w3: AsyncWeb3, address: str, selector: str) -> Optional[int]:
+        """Appelle une fonction qui retourne un uint256 (ex: totalSupply)."""
+        try:
+            raw  = await asyncio.wait_for(
+                w3.eth.call({"to": address, "data": selector}),
+                timeout=3.0,
+            )
+            data = bytes(raw) if raw else b""
+            if len(data) >= 32:
+                return int.from_bytes(data[:32], "big")
+            return None
+        except Exception:
+            return None
+
+    # ─── Prix ETH/USD live ────────────────────────────────────────────────────
 
     async def _get_eth_price(self) -> float:
         now = time.monotonic()
