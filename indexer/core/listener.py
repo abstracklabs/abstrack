@@ -286,15 +286,22 @@ class LiveListener:
             logger.info(f"Block {block_num} — {len(raw_logs) if raw_logs else 0} relevant logs")
 
     async def _get_block_timestamp(self, w3: AsyncWeb3, block_num: int) -> datetime:
-        try:
-            block = await asyncio.wait_for(w3.eth.get_block(block_num), timeout=5.0)
-            ts = block["timestamp"]
-            if isinstance(ts, str):
-                ts = int(ts, 16)
-            return datetime.fromtimestamp(ts, tz=timezone.utc)
-        except Exception as e:
-            logger.warning(f"get_block timestamp failed for {block_num}: {e!r} — using now()")
-            return datetime.now(tz=timezone.utc)
+        """Fetch block timestamp with retries — never falls back to now() for historical blocks."""
+        for attempt in range(4):
+            try:
+                block = await asyncio.wait_for(w3.eth.get_block(block_num), timeout=15.0)
+                ts = block["timestamp"]
+                if isinstance(ts, str):
+                    ts = int(ts, 16)
+                return datetime.fromtimestamp(ts, tz=timezone.utc)
+            except Exception as e:
+                wait = 1.0 * (2 ** attempt)
+                if attempt < 3:
+                    logger.debug(f"get_block {block_num} attempt {attempt+1} failed: {e!r} — retry in {wait:.0f}s")
+                    await asyncio.sleep(wait)
+                else:
+                    logger.error(f"get_block timestamp failed for {block_num} after 4 attempts: {e!r}")
+                    raise
 
     # ─── Traitement d'un log individuel ──────────────────────────────────────
 
