@@ -27,8 +27,13 @@ Seaport OrderFulfilled — deux variantes selon déploiement :
 
   itemType : 0=ETH natif, 1=ERC20, 2=ERC721, 3=ERC1155, 4=ERC721+criteria, 5=ERC1155+criteria
 
+BUNDLE SALES :
+  Un OrderFulfilled peut contenir plusieurs NFTs dans offer[].
+  On génère une vente par NFT, le prix est réparti équitablement.
+  Les log_index des items 1+ utilisent l'espace offset [base + 100_000 * i]
+  pour éviter les collisions avec les vrais logIndex (toujours < 10_000 par bloc).
+
 Retour : decode_nft_log() retourne toujours list[dict] (vide si non reconnu).
-  Chaque dict contient un champ "kind" : "transfer" | "sale".
 """
 
 import logging
@@ -61,8 +66,11 @@ _SEAPORT_CONTRACTS: dict[str, str] = {
     "0x00000000000001ad428e4906ae43d8f9852d0dd6": "opensea",   # Seaport 1.4 Ethereum
 }
 
-# WETH sur Abstract
-WETH_ABSTRACT = "0x3439153eb7af838ad19d56e1571fbd09333c2809"
+# WETH sur Abstract (connus — plusieurs déploiements possibles)
+WETH_ADDRESSES = {
+    "0x3439153eb7af838ad19d56e1571fbd09333c2809",  # WETH Abstract v1
+    "0x4300000000000000000000000000000000000004",  # WETH Blast/Abstract L2 courant
+}
 
 ZERO_ADDR = "0x" + "0" * 40
 WEI       = 10 ** 18
@@ -76,9 +84,10 @@ _RECV_ITEM     = "(uint8,address,uint256,uint256,address)"
 _ABI_WITH_HASH = ["bytes32", "address", f"{_SPENT_ITEM}[]", f"{_RECV_ITEM}[]"]
 _ABI_NO_HASH   = ["address",            f"{_SPENT_ITEM}[]", f"{_RECV_ITEM}[]"]
 
-# ABI ERC-1155
-_ABI_1155_SINGLE = ["address", "address", "uint256", "uint256"]   # operator,from,to,id,value (from=topics[2],to=topics[3])
-_ABI_1155_BATCH  = ["address", "address", "uint256[]", "uint256[]"]
+# Offset log_index pour les items 1+ d'un bundle (évite collision avec vrais logIndex < 10_000)
+_BUNDLE_LOG_OFFSET = 100_000
+# Offset pour ERC-1155 batch items (distinct de bundle)
+_BATCH_LOG_OFFSET  = 10_000
 
 
 def decode_nft_log(
@@ -89,7 +98,7 @@ def decode_nft_log(
 ) -> list[dict]:
     """
     Décode un log Ethereum en événement(s) NFT.
-    Retourne une liste (vide si non reconnu, plusieurs éléments pour ERC-1155 Batch).
+    Retourne une liste (vide si non reconnu, plusieurs éléments pour bundles/batches).
     """
     topics = log.get("topics", [])
     if not topics:
@@ -109,8 +118,8 @@ def decode_nft_log(
         return _decode_erc1155_batch(log, topics, block_number, block_ts)
 
     if topic0 == SEAPORT_ORDER:
-        r = _decode_seaport_sale(log, topics, block_number, block_ts, eth_usd)
-        return [r] if r else []
+        # Retourne directement la liste (peut contenir plusieurs ventes pour un bundle)
+        return _decode_seaport_sale(log, topics, block_number, block_ts, eth_usd)
 
     return []
 
@@ -225,12 +234,13 @@ def _decode_erc1155_batch(log: dict, topics: list, block_number: int, block_ts: 
 
     results = []
     for i, (token_id, value) in enumerate(zip(ids, values)):
+        # log_index unique par item du batch
+        # Espace réservé : base_idx * BATCH_OFFSET + i (max i limité à BATCH_OFFSET-1)
+        item_log_idx = base_idx * _BATCH_LOG_OFFSET + min(i, _BATCH_LOG_OFFSET - 1)
         results.append({
             "kind":            "transfer",
             "tx_hash":         tx_hash,
-            # Sous-index synthétique pour éviter les conflits sur (tx_hash, log_index)
-            # On utilise base_idx * 10000 + i pour rester dans un int raisonnable
-            "log_index":       base_idx * 10_000 + i,
+            "log_index":       item_log_idx,
             "block_number":    block_number,
             "block_ts":        block_ts,
             "collection_addr": collection,
@@ -253,27 +263,36 @@ def _decode_seaport_sale(
     block_number: int,
     block_ts: datetime,
     eth_usd: float,
-):
+) -> list[dict]:
+    """
+    Décode un log Seaport OrderFulfilled en une ou plusieurs ventes.
+
+    Un ordre Seaport peut contenir plusieurs NFTs (bundle) dans offer[].
+    On génère une vente par NFT, le prix total est réparti équitablement.
+
+    Retourne une liste vide si le log est invalide ou ne contient aucun NFT.
+    """
     n_topics = len(topics)
 
+    # Validation stricte du nombre de topics
     if n_topics == 3:
-        seller = _topic_addr(topics[1])
-        abi    = _ABI_WITH_HASH
+        seller = _topic_addr(topics[1])   # offerer = topics[1]
+        abi    = _ABI_WITH_HASH           # data commence par bytes32 orderHash
     elif n_topics == 4:
-        seller = _topic_addr(topics[2])
-        abi    = _ABI_NO_HASH
+        seller = _topic_addr(topics[2])   # offerer = topics[2] (topics[1] = orderHash)
+        abi    = _ABI_NO_HASH             # data commence directement par recipient
     else:
         logger.debug(
             f"Seaport log with unexpected topic count {n_topics} — "
             f"tx {log.get('transactionHash')} — skipping"
         )
-        return None
+        return []
 
     try:
         raw = _log_data_bytes(log)
         if not raw:
             logger.warning(f"Seaport log has empty data — tx {log.get('transactionHash')}")
-            return None
+            return []
 
         decoded = abi_decode(abi, raw)
 
@@ -284,28 +303,27 @@ def _decode_seaport_sale(
 
         buyer = recipient.lower()
 
-        nft_item = next(
-            (item for item in offer if item[0] in NFT_ITEM_TYPES),
-            None,
+        # Prix total = somme ETH natif + WETH dans la consideration
+        price_wei_total = sum(
+            amount
+            for item_type, token, _id, amount, _recv in consideration
+            if item_type == 0                                              # ETH natif
+            or (item_type == 1 and token.lower() in WETH_ADDRESSES)       # WETH
         )
-        if nft_item is None:
+
+        # Collecte tous les NFTs dans l'offer (bundle support)
+        nft_items = [
+            (nft_token, nft_id)
+            for item_type, nft_token, nft_id, _amount in offer
+            if item_type in NFT_ITEM_TYPES
+        ]
+
+        if not nft_items:
             logger.debug(
                 f"Seaport sale has no NFT item "
                 f"(itemTypes: {[i[0] for i in offer]}) — tx {log.get('transactionHash')}"
             )
-            return None
-
-        _, nft_token, nft_id, _ = nft_item
-        collection = nft_token.lower()
-        token_id   = str(nft_id)
-
-        price_wei = sum(
-            amount
-            for item_type, token, _id, amount, _recv in consideration
-            if item_type == 0
-            or (item_type == 1 and token.lower() == WETH_ABSTRACT)
-        )
-        price_eth = price_wei / WEI
+            return []
 
     except Exception as exc:
         logger.warning(
@@ -313,32 +331,55 @@ def _decode_seaport_sale(
             f"— tx {log.get('transactionHash')}: {exc!r} "
             f"(data[:32]={log.get('data', '0x')[:66]})"
         )
-        return None
+        return []
 
-    price_usd = round(price_eth * eth_usd, 4) if eth_usd and price_eth > 0 else None
+    # Prix réparti équitablement entre tous les NFTs du bundle
+    n_nfts = len(nft_items)
+    price_eth_each = (price_wei_total / n_nfts) / WEI
 
     contract_addr = _normalize_addr(log.get("address", ""))
     marketplace   = _SEAPORT_CONTRACTS.get(contract_addr, "seaport")
+    tx_hash       = _normalize_hash(log.get("transactionHash", ""))
+    base_log_idx  = _parse_log_index(log)
+    variant       = 'A' if n_topics == 3 else 'B'
 
-    logger.info(
-        f"Seaport sale ({marketplace}, variant {'A' if n_topics == 3 else 'B'}): "
-        f"{collection} #{token_id} — {price_eth:.4f} ETH — tx {log.get('transactionHash')}"
-    )
+    if n_nfts > 1:
+        logger.info(
+            f"Seaport bundle ({marketplace}, variant {variant}): "
+            f"{n_nfts} NFTs — {price_eth_each * n_nfts:.4f} ETH total — tx {tx_hash}"
+        )
 
-    return {
-        "kind":            "sale",
-        "tx_hash":         _normalize_hash(log.get("transactionHash", "")),
-        "log_index":       _parse_log_index(log),
-        "block_number":    block_number,
-        "block_ts":        block_ts,
-        "collection_addr": collection,
-        "token_id":        token_id,
-        "seller":          seller,
-        "buyer":           buyer,
-        "price_eth":       price_eth,
-        "price_usd":       price_usd,
-        "marketplace":     marketplace,
-    }
+    results = []
+    for i, (nft_token, nft_id) in enumerate(nft_items):
+        price_usd = round(price_eth_each * eth_usd, 4) if eth_usd and price_eth_each > 0 else None
+
+        # log_index unique par item du bundle
+        # Item 0 : log_index réel (rétrocompatible avec les données existantes)
+        # Items 1+ : espace offset [base + BUNDLE_OFFSET * i] (jamais atteint par de vrais logIndex)
+        log_idx = base_log_idx if i == 0 else base_log_idx + _BUNDLE_LOG_OFFSET * i
+
+        if i == 0:
+            logger.info(
+                f"Seaport sale ({marketplace}, variant {variant}): "
+                f"{nft_token.lower()} #{nft_id} — {price_eth_each:.4f} ETH — tx {tx_hash}"
+            )
+
+        results.append({
+            "kind":            "sale",
+            "tx_hash":         tx_hash,
+            "log_index":       log_idx,
+            "block_number":    block_number,
+            "block_ts":        block_ts,
+            "collection_addr": nft_token.lower(),
+            "token_id":        str(nft_id),
+            "seller":          seller,
+            "buyer":           buyer,
+            "price_eth":       price_eth_each,
+            "price_usd":       price_usd,
+            "marketplace":     marketplace,
+        })
+
+    return results
 
 
 # ─── Helpers ─────────────────────────────────────────────────────────────────

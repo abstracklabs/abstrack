@@ -84,6 +84,28 @@ export async function walletsRoutes(app: FastifyInstance) {
     )
   })
 
+  // GET /wallets/:address/pnl
+  // PnL réalisé via wallet_realized_pnl() SQL function.
+  // Un seul scan nft_sales avec FILTER — beaucoup plus rapide que deux requêtes séparées.
+  app.get<{ Params: { address: string } }>('/:address/pnl', async (req) => {
+    const address = req.params.address.toLowerCase()
+    const row = await db.queryOne(
+      `SELECT * FROM wallet_realized_pnl($1)`,
+      [address]
+    )
+    return row ?? {
+      total_spent_eth:    '0',
+      total_received_eth: '0',
+      realized_pnl_eth:   '0',
+      buy_count:          0,
+      sell_count:         0,
+      unique_collections: 0,
+      most_traded_coll:   null,
+      avg_buy_price_eth:  '0',
+      avg_sell_price_eth: '0',
+    }
+  })
+
   // GET /wallets/:address/portfolio — NFT estimés (balance depuis transfers)
   //
   // Réécrit avec UNION ALL + delta : un seul GROUP BY au lieu de CTE received/sent + JOIN.

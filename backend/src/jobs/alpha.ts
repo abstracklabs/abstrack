@@ -82,15 +82,13 @@ async function detectWhales(): Promise<AlphaEvent[]> {
     price_usd:       number | null
     block_ts:        string
     marketplace:     string | null
-    side:            'buy' | 'sell'
   }>(
     // On cherche les ventes whale dans les 60 dernières secondes
     // Le cron tourne toutes les 15s → fenêtre 60s absorbe les délais sans manquer d'events
     `SELECT
        s.tx_hash, s.collection_addr, c.name AS collection_name,
        s.token_id, s.buyer, s.seller, s.price_eth, s.price_usd, s.block_ts,
-       s.marketplace,
-       'buy' AS side
+       s.marketplace
      FROM nft_sales s
      LEFT JOIN collections c ON c.address = s.collection_addr
      WHERE s.price_eth >= $1
@@ -101,7 +99,9 @@ async function detectWhales(): Promise<AlphaEvent[]> {
   )
 
   return rows.map(r => ({
-    type:            r.price_eth >= WHALE_ETH * 3 ? 'whale_buy' : 'whale_buy',
+    // >= 3× threshold → seller received massive ETH = whale_sell signal
+    // otherwise → buyer spent large ETH = whale_buy signal
+    type:            r.price_eth >= WHALE_ETH * 3 ? 'whale_sell' : 'whale_buy',
     score:           _whaleScore(r.price_eth),
     ts:              r.block_ts,
     collection:      r.collection_addr,

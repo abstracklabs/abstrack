@@ -74,6 +74,18 @@ export async function analyticsRoutes(app: FastifyInstance) {
     )
   })
 
+  // GET /analytics/market-overview
+  // Stats globales enrichies : 24h + 7j + comparaison vs veille + all-time.
+  // Cache 60s — agrégat complet sur toute la table nft_sales.
+  app.get('/market-overview', async () => {
+    return withCache('analytics:market-overview', 60_000, async () => {
+      const row = await db.queryOne<{ market_overview: Record<string, unknown> }>(
+        `SELECT market_overview() AS market_overview`
+      )
+      return row?.market_overview ?? {}
+    })
+  })
+
   // POST /analytics/invalidate-cache — interne, appelé par l'indexer via admin si besoin
   // Protégé par le même mécanisme que les routes admin (header secret)
   app.post('/invalidate-cache', async (_req, reply) => {

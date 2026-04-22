@@ -159,6 +159,20 @@ export async function collectionsRoutes(app: FastifyInstance) {
     return withCache(key, 86_400_000, () => resolveNFTMeta(address.toLowerCase(), tokenId))
   })
 
+  // GET /collections/:address/analytics
+  // Stats complètes en une seule query (1h/24h/7d/30d + momentum).
+  // Cache 60s — agrège jusqu'à 30j de nft_sales.
+  app.get<{ Params: { address: string } }>('/:address/analytics', async (req) => {
+    const addr = req.params.address.toLowerCase()
+    return withCache(`collection:analytics:${addr}`, 60_000, async () => {
+      const row = await db.queryOne<{ collection_analytics: Record<string, unknown> }>(
+        `SELECT collection_analytics($1) AS collection_analytics`,
+        [addr]
+      )
+      return row?.collection_analytics ?? {}
+    })
+  })
+
   // GET /collections/:address/holders?limit=50
   //
   // Requête réécrite : UNION ALL avec delta (+1/-1) au lieu de deux CTE séparées.
