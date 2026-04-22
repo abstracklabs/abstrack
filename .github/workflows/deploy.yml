@@ -1,0 +1,255 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      service:
+        description: "Service to deploy (leave empty for all)"
+        required: false
+        default: ""
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false   # ne pas annuler un deploy en cours
+
+env:
+  AWS_REGION:     ${{ vars.AWS_REGION }}
+  ECR_REGISTRY:   ${{ vars.ECR_REGISTRY }}   # ex: 123456789.dkr.ecr.eu-west-1.amazonaws.com
+
+jobs:
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # Détecter quels services ont changé (skip les builds inutiles)
+  # ────────────────────────────────────────────────────────────────────────────
+  changes:
+    name: Detect changes
+    runs-on: ubuntu-latest
+    outputs:
+      api:          ${{ steps.filter.outputs.api }}
+      realtime:     ${{ steps.filter.outputs.realtime }}
+      indexer:      ${{ steps.filter.outputs.indexer }}
+      intelligence: ${{ steps.filter.outputs.intelligence }}
+      alerts:       ${{ steps.filter.outputs.alerts }}
+      web:          ${{ steps.filter.outputs.web }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            api:
+              - 'services/api/**'
+              - 'packages/**'
+            realtime:
+              - 'services/realtime/**'
+              - 'packages/**'
+            indexer:
+              - 'services/indexer/**'
+            intelligence:
+              - 'services/intelligence/**'
+            alerts:
+              - 'services/alerts/**'
+            web:
+              - 'apps/web/**'
+              - 'packages/**'
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # Build & Push ECR — services Node.js / Python
+  # ────────────────────────────────────────────────────────────────────────────
+  push-ecr:
+    name: Push ${{ matrix.service }} → ECR
+    needs: changes
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - service: api
+            context: services/api
+            changed: ${{ needs.changes.outputs.api }}
+          - service: realtime
+            context: services/realtime
+            changed: ${{ needs.changes.outputs.realtime }}
+          - service: indexer
+            context: services/indexer
+            changed: ${{ needs.changes.outputs.indexer }}
+          - service: intelligence
+            context: services/intelligence
+            changed: ${{ needs.changes.outputs.intelligence }}
+          - service: alerts
+            context: services/alerts
+            changed: ${{ needs.changes.outputs.alerts }}
+
+    # Skiper si rien n'a changé ET que ce n'est pas un dispatch manuel ciblé
+    if: |
+      matrix.changed == 'true' ||
+      (github.event_name == 'workflow_dispatch' &&
+       (github.event.inputs.service == '' || github.event.inputs.service == matrix.service))
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region:            ${{ env.AWS_REGION }}
+
+      - uses: aws-actions/amazon-ecr-login@v2
+        id: ecr-login
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build & push
+        uses: docker/build-push-action@v5
+        with:
+          context:   ${{ matrix.context }}
+          push:      true
+          tags: |
+            ${{ env.ECR_REGISTRY }}/abstrack-${{ matrix.service }}:${{ github.sha }}
+            ${{ env.ECR_REGISTRY }}/abstrack-${{ matrix.service }}:latest
+          cache-from: type=gha,scope=${{ matrix.service }}
+          cache-to:   type=gha,scope=${{ matrix.service }},mode=max
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # Deploy ECS — mise à jour des task definitions
+  # ────────────────────────────────────────────────────────────────────────────
+  deploy-ecs:
+    name: Deploy ${{ matrix.service }} → ECS
+    needs: [changes, push-ecr]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - service: api
+            cluster: abstrack-prod
+            task-def: abstrack-api
+            container: api
+            changed: ${{ needs.changes.outputs.api }}
+          - service: realtime
+            cluster: abstrack-prod
+            task-def: abstrack-realtime
+            container: realtime
+            changed: ${{ needs.changes.outputs.realtime }}
+          - service: indexer
+            cluster: abstrack-prod
+            task-def: abstrack-indexer
+            container: indexer
+            changed: ${{ needs.changes.outputs.indexer }}
+          - service: intelligence
+            cluster: abstrack-prod
+            task-def: abstrack-intelligence
+            container: intelligence
+            changed: ${{ needs.changes.outputs.intelligence }}
+          - service: alerts
+            cluster: abstrack-prod
+            task-def: abstrack-alerts
+            container: alerts
+            changed: ${{ needs.changes.outputs.alerts }}
+
+    if: |
+      matrix.changed == 'true' ||
+      (github.event_name == 'workflow_dispatch' &&
+       (github.event.inputs.service == '' || github.event.inputs.service == matrix.service))
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region:            ${{ env.AWS_REGION }}
+
+      - name: Download current task definition
+        run: |
+          aws ecs describe-task-definition \
+            --task-definition ${{ matrix.task-def }} \
+            --query taskDefinition \
+            > task-def.json
+
+      - name: Update image in task definition
+        id: task-def
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition:    task-def.json
+          container-name:     ${{ matrix.container }}
+          image:              ${{ env.ECR_REGISTRY }}/abstrack-${{ matrix.service }}:${{ github.sha }}
+
+      - name: Deploy to ECS
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v1
+        with:
+          task-definition:      ${{ steps.task-def.outputs.task-definition }}
+          service:              abstrack-${{ matrix.service }}
+          cluster:              ${{ matrix.cluster }}
+          wait-for-service-stability: true
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # Deploy Frontend → Vercel
+  # ────────────────────────────────────────────────────────────────────────────
+  deploy-vercel:
+    name: Deploy web → Vercel
+    needs: changes
+    runs-on: ubuntu-latest
+    if: |
+      needs.changes.outputs.web == 'true' ||
+      (github.event_name == 'workflow_dispatch' &&
+       (github.event.inputs.service == '' || github.event.inputs.service == 'web'))
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm install -g vercel@latest
+
+      - name: Pull Vercel environment
+        run: vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
+        working-directory: apps/web
+
+      - name: Build
+        run: vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
+        working-directory: apps/web
+        env:
+          VERCEL_ORG_ID:     ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+
+      - name: Deploy
+        run: vercel deploy --prebuilt --prod --token=${{ secrets.VERCEL_TOKEN }}
+        working-directory: apps/web
+        env:
+          VERCEL_ORG_ID:     ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # Notification Slack post-deploy
+  # ────────────────────────────────────────────────────────────────────────────
+  notify:
+    name: Notify deployment
+    needs: [deploy-ecs, deploy-vercel]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Slack notification
+        uses: slackapi/slack-github-action@v1
+        with:
+          payload: |
+            {
+              "text": "${{ (needs.deploy-ecs.result == 'success' && needs.deploy-vercel.result != 'failure') && '✅ Deploy succeeded' || '❌ Deploy failed' }} — *Abstrack* `${{ github.sha }}` by ${{ github.actor }}",
+              "attachments": [{
+                "color": "${{ needs.deploy-ecs.result == 'success' && '#2eb886' || '#cc0000' }}",
+                "fields": [
+                  { "title": "Branch",  "value": "${{ github.ref_name }}", "short": true },
+                  { "title": "Commit",  "value": "${{ github.sha }}", "short": true }
+                ]
+              }]
+            }
+        env:
+          SLACK_WEBHOOK_URL:  ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK

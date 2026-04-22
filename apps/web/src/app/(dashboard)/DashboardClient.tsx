@@ -40,7 +40,7 @@ export function DashboardClient() {
         <StatCard
           label="Volume 24h"
           value={global ? `${Number(global.volume_24h_eth).toFixed(1)} ETH` : '—'}
-          sub={global ? `~$${_usdFmt(Number(global.volume_24h_eth) * 3500)}` : undefined}
+          sub="last 24 hours"
           accent="blue"
           loading={globalLoading}
         />

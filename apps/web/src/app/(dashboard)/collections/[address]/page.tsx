@@ -1,6 +1,6 @@
 'use client'
 
-import { use }              from 'react'
+import { use, useState }   from 'react'
 import { useQuery }         from '@tanstack/react-query'
 import { FloorChart }       from '../../../../components/charts/FloorChart'
 import { LiveSalesFeed }    from '../../../../components/live/LiveSalesFeed'
@@ -12,10 +12,13 @@ import { useLiveSales }     from '../../../../lib/hooks/useRealtime'
 
 const API = process.env.NEXT_PUBLIC_API_URL
 
+type Period = '24h' | '7d' | '30d'
+
 interface Params { params: Promise<{ address: string }> }
 
 export default function CollectionPage({ params }: Params) {
   const { address: addr } = use(params)
+  const [period, setPeriod] = useState<Period>('7d')
 
   const { data: stats, isLoading } = useQuery({
     queryKey: ['collection', addr],
@@ -32,8 +35,14 @@ export default function CollectionPage({ params }: Params) {
 
   const liveSales = useLiveSales(addr, 50)
 
-  // Fusionner live + historique (live en premier)
-  const allSales = [...liveSales, ...(sales ?? [])].slice(0, 100)
+  // Fusionner live + historique — déduplication par tx_hash
+  const seen = new Set<string>()
+  const allSales = [...liveSales, ...(sales ?? [])].filter(r => {
+    const key = r.tx_hash ?? r.txHash
+    if (!key || seen.has(key)) return false
+    seen.add(key)
+    return true
+  }).slice(0, 100)
 
   return (
     <div className="space-y-6 max-w-[1400px]">
@@ -77,8 +86,8 @@ export default function CollectionPage({ params }: Params) {
         <StatCard label="Floor"      value={stats?.floor_price_eth ? `${Number(stats.floor_price_eth).toFixed(4)} ETH` : '—'} change={stats?.change_24h_pct} loading={isLoading} accent="blue" />
         <StatCard label="Volume 24h" value={stats?.volume_24h_eth   ? `${Number(stats.volume_24h_eth).toFixed(2)} ETH` : '—'} loading={isLoading} accent="purple" />
         <StatCard label="Sales 24h"  value={stats?.sales_count_24h ?? '—'} loading={isLoading} />
-        <StatCard label="Holders"     value={stats?.holder_count ?? '—'}  loading={isLoading} />
-        <StatCard label="Total Sales" value={stats?.total_sales ?? '—'}   loading={isLoading} />
+        <StatCard label="Holders"    value={stats?.holder_count ?? '—'}  loading={isLoading} />
+        <StatCard label="Total Sales" value={stats?.total_sales ?? '—'}  loading={isLoading} />
       </div>
 
       {/* Chart + live feed */}
@@ -88,10 +97,10 @@ export default function CollectionPage({ params }: Params) {
         <div className="col-span-2 glass rounded-xl border border-[var(--border)] overflow-hidden">
           <div className="flex items-center justify-between px-4 pt-4 pb-2">
             <h2 className="text-sm font-semibold text-white">Floor Price</h2>
-            <PeriodSelector />
+            <PeriodSelector selected={period} onChange={setPeriod} />
           </div>
           <div className="px-4 pb-4">
-            <FloorChart collection={addr} height={220} />
+            <FloorChart collection={addr} period={period} height={220} />
           </div>
         </div>
 
@@ -115,7 +124,7 @@ export default function CollectionPage({ params }: Params) {
         <DataTable
           columns={salesColumns(addr)}
           data={allSales}
-          keyFn={r => r.tx_hash || r.txHash}
+          keyFn={r => r.tx_hash ?? r.txHash}
         />
       </div>
     </div>
@@ -124,16 +133,26 @@ export default function CollectionPage({ params }: Params) {
 
 // ─── Period selector ──────────────────────────────────────────────────────────
 
-function PeriodSelector() {
-  const periods = ['1H', '24H', '7D', '30D', 'ALL']
+const PERIODS: Array<{ value: Period; label: string }> = [
+  { value: '24h', label: '24H' },
+  { value: '7d',  label: '7D'  },
+  { value: '30d', label: '30D' },
+]
+
+function PeriodSelector({ selected, onChange }: { selected: Period; onChange: (p: Period) => void }) {
   return (
     <div className="flex gap-1 bg-white/5 rounded-lg p-1">
-      {periods.map(p => (
+      {PERIODS.map(({ value, label }) => (
         <button
-          key={p}
-          className="text-xs px-2.5 py-1 rounded-md text-[var(--text-muted)] hover:text-white transition first:bg-white/10 first:text-white"
+          key={value}
+          onClick={() => onChange(value)}
+          className={`text-xs px-2.5 py-1 rounded-md transition ${
+            selected === value
+              ? 'bg-white/10 text-white'
+              : 'text-[var(--text-muted)] hover:text-white'
+          }`}
         >
-          {p}
+          {label}
         </button>
       ))}
     </div>
@@ -186,7 +205,7 @@ function salesColumns(collection: string) {
   {
     key: 'time', header: 'Time', align: 'right' as const,
     render: (r: any) => (
-      <TimeCell ts={r.timestamp ?? r.ts} />
+      <TimeCell ts={r.block_ts ?? r.ts ?? r.timestamp} />
     ),
   },
   ]
@@ -204,10 +223,14 @@ function AddressCell({ address }: { address: string }) {
   )
 }
 
-function TimeCell({ ts }: { ts: number }) {
-  const diff = Math.floor((Date.now() - ts) / 1000)
+function TimeCell({ ts }: { ts: string | number | undefined }) {
+  if (!ts) return <span className="text-xs text-[var(--text-muted)]">—</span>
+  // block_ts from REST = ISO string ; ts from WS = Unix ms number
+  const ms   = typeof ts === 'number' ? ts : new Date(ts).getTime()
+  if (isNaN(ms)) return <span className="text-xs text-[var(--text-muted)]">—</span>
+  const diff = Math.max(0, Math.floor((Date.now() - ms) / 1000))
   const label = diff < 60   ? `${diff}s`
-              : diff < 3600 ? `${Math.floor(diff/60)}m`
-              : `${Math.floor(diff/3600)}h`
+              : diff < 3600 ? `${Math.floor(diff / 60)}m`
+              : `${Math.floor(diff / 3600)}h`
   return <span className="text-xs text-[var(--text-muted)]">{label} ago</span>
 }

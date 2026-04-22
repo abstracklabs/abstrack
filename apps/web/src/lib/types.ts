@@ -46,6 +46,7 @@ export interface CollectionRow {
   floor_price_eth: number
   volume_24h_eth:  number
   sales_count_24h: number
+  change_24h_pct:  number | null
   thumbnail_url:   string | null
 }
 

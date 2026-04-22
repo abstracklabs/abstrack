@@ -1,6 +1,7 @@
 'use client'
 
 import { useQuery }   from '@tanstack/react-query'
+import Link           from 'next/link'
 import { StatCard }   from '../../../components/ui/StatCard'
 import type { CollectionRow, GlobalStats } from '../../../lib/types'
 
@@ -140,7 +141,7 @@ function LeaderboardRow({
   const hue = parseInt(row.address.slice(2, 4), 16) * 1.4
 
   return (
-    <a
+    <Link
       href={`/collections/${row.address}`}
       className="flex items-center gap-3 px-4 py-3 hover:bg-white/[0.04] transition-colors"
     >
@@ -169,6 +170,6 @@ function LeaderboardRow({
           : row.sales_count_24h.toLocaleString()
         }
       </span>
-    </a>
+    </Link>
   )
 }

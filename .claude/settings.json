@@ -1,10 +1,24 @@
 {
   "permissions": {
+    "allow": [
+      "Bash(wc -l /c/Users/NFC/Downloads/abstrack/apps/web/src/components/graphs/*.tsx)",
+      "Bash(ls \"c:/Users/NFC/Downloads/abstrack/apps/web/postcss.config\"*)",
+      "Bash(where psql:*)",
+      "mcp__claude_ai_Supabase__list_organizations",
+      "mcp__claude_ai_Supabase__get_cost",
+      "mcp__claude_ai_Supabase__confirm_cost",
+      "mcp__claude_ai_Supabase__create_project",
+      "mcp__claude_ai_Supabase__apply_migration",
+      "mcp__claude_ai_Supabase__get_project_url",
+      "Bash(git commit -m ':*)",
+      "WebFetch(domain:abstrackweb-production.up.railway.app)",
+      "Bash(curl -s -X POST https://api.mainnet.abs.xyz -H 'Content-Type: application/json' -d '{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"eth_blockNumber\",\"params\":[]}')",
+      "Bash(python3 -c \"import sys,json; r=json.load\\(sys.stdin\\); print\\(int\\(r['result'],16\\)\\)\")",
+      "Bash(curl -s -X POST https://api.mainnet.abs.xyz -H \"Content-Type: application/json\" -d \"{\\\\\"jsonrpc\\\\\":\\\\\"2.0\\\\\",\\\\\"id\\\\\":1,\\\\\"method\\\\\":\\\\\"eth_blockNumber\\\\\",\\\\\"params\\\\\":[]}\")",
+      "WebFetch(domain:api.mainnet.abs.xyz)"
+    ],
     "additionalDirectories": [
       "C:\\Users\\NFC\\Downloads\\abstrack"
-    ],
-    "allow": [
-      "Bash(wc -l /c/Users/NFC/Downloads/abstrack/apps/web/src/components/graphs/*.tsx)"
     ]
   }
 }

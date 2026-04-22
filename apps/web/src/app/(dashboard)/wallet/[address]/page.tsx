@@ -2,6 +2,7 @@
 
 import { use }             from 'react'
 import { useQuery }        from '@tanstack/react-query'
+import Link                from 'next/link'
 import { StatCard }        from '../../../../components/ui/StatCard'
 import { DataTable }       from '../../../../components/ui/DataTable'
 import { WalletActivity }  from '../../../../components/live/WalletActivity'
@@ -14,37 +15,37 @@ interface Params { params: Promise<{ address: string }> }
 export default function WalletPage({ params }: Params) {
   const { address: addr } = use(params)
 
+  // Profile stats : buys, sells, transfers counts
   const { data: profile } = useQuery({
     queryKey: ['wallet', addr],
     queryFn:  () => fetch(`${API}/api/v1/wallets/${addr}`).then(r => r.json()),
     staleTime: 60_000,
   })
 
-  const { data: pnl } = useQuery({
-    queryKey: ['wallet-pnl', addr],
-    queryFn:  () => fetch(`${API}/api/v1/wallets/${addr}/pnl`).then(r => r.json()),
-    staleTime: 30_000,
-    refetchInterval: 60_000,
-  })
-
+  // NFT positions actuelles (delta transfers)
   const { data: portfolio } = useQuery({
     queryKey: ['wallet-portfolio', addr],
     queryFn:  () => fetch(`${API}/api/v1/wallets/${addr}/portfolio`).then(r => r.json()),
     staleTime: 60_000,
   })
 
+  // Historique des trades (sales)
   const { data: activity } = useQuery({
     queryKey: ['wallet-activity', addr],
     queryFn:  () => fetch(`${API}/api/v1/wallets/${addr}/activity?limit=50`).then(r => r.json()),
     staleTime: 30_000,
   })
 
-  const totalPnl      = pnl?.total_eth ?? 0
-  const isProfitable  = totalPnl >= 0
-  const labels        = profile?.labels ?? []
+  // Stats calculées depuis les données réelles
+  const buysEth    = Number(profile?.buys?.total_eth ?? 0)
+  const sellsEth   = Number(profile?.sells?.total_eth ?? 0)
+  const realizedPnl = sellsEth - buysEth
+  const totalTrades = (Number(profile?.buys?.count ?? 0) + Number(profile?.sells?.count ?? 0))
+
+  const labels = profile?.labels ?? []
   const { getCollectionName } = useCollectionNames()
-  const portfolioColumns = usePortfolioColumns(getCollectionName)
-  const pnlColumns       = usePnlColumns(getCollectionName)
+  const portfolioColumns = buildPortfolioColumns(getCollectionName)
+  const activityColumns  = buildActivityColumns()
 
   return (
     <div className="space-y-6 max-w-[1400px]">
@@ -52,8 +53,7 @@ export default function WalletPage({ params }: Params) {
       {/* Header */}
       <div className="flex items-start justify-between">
         <div className="flex items-center gap-4">
-          {/* Jazzicon placeholder */}
-          <div className="h-14 w-14 rounded-full bg-gradient-to-br from-purple-500 to-blue-600" />
+          <WalletAvatar address={addr} />
           <div>
             <div className="flex items-center gap-2">
               <h1 className="text-lg font-bold text-white font-mono">
@@ -67,9 +67,7 @@ export default function WalletPage({ params }: Params) {
               {profile?.ens_name && (
                 <span className="text-sm text-blue-400">{profile.ens_name}</span>
               )}
-              <span className="text-xs text-[var(--text-muted)]">
-                Active since {profile?.first_seen ? new Date(profile.first_seen).toLocaleDateString() : '—'}
-              </span>
+              <span className="text-xs text-[var(--text-muted)] font-mono">{addr}</span>
             </div>
           </div>
         </div>
@@ -79,27 +77,29 @@ export default function WalletPage({ params }: Params) {
         </button>
       </div>
 
-      {/* PnL KPIs */}
+      {/* Stats réelles depuis l'API */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <StatCard
-          label="Total PnL"
-          value={`${isProfitable ? '+' : ''}${totalPnl.toFixed(4)} ETH`}
-          accent={isProfitable ? 'green' : 'red'}
-          sub={pnl ? `$${Math.abs(pnl.total_eth * 2500).toFixed(0)}` : undefined}
+          label="Realized P&L"
+          value={`${realizedPnl >= 0 ? '+' : ''}${realizedPnl.toFixed(4)} ETH`}
+          accent={realizedPnl >= 0 ? 'green' : 'red'}
+          sub="sells − buys"
         />
         <StatCard
-          label="Realized PnL"
-          value={`${(pnl?.realized_eth ?? 0).toFixed(4)} ETH`}
+          label="Total Spent"
+          value={`${buysEth.toFixed(3)} ETH`}
+          sub={`${profile?.buys?.count ?? 0} buys`}
           accent="blue"
         />
         <StatCard
-          label="Unrealized"
-          value={`${(pnl?.unrealized_eth ?? 0).toFixed(4)} ETH`}
-          sub="open positions"
+          label="Total Received"
+          value={`${sellsEth.toFixed(3)} ETH`}
+          sub={`${profile?.sells?.count ?? 0} sells`}
+          accent="purple"
         />
         <StatCard
           label="Total Trades"
-          value={pnl?.trades_count ?? '—'}
+          value={totalTrades > 0 ? totalTrades.toLocaleString() : '—'}
           sub="transactions"
         />
       </div>
@@ -107,7 +107,7 @@ export default function WalletPage({ params }: Params) {
       {/* Main grid */}
       <div className="grid grid-cols-3 gap-4">
 
-        {/* Portfolio */}
+        {/* Portfolio — NFTs actuellement détenus */}
         <div className="col-span-2 glass rounded-xl border border-[var(--border)] overflow-hidden">
           <div className="px-4 py-3 border-b border-[var(--border)] flex items-center justify-between">
             <h2 className="text-sm font-semibold text-white">Portfolio</h2>
@@ -118,8 +118,9 @@ export default function WalletPage({ params }: Params) {
           <DataTable
             columns={portfolioColumns}
             data={portfolio ?? []}
-            keyFn={(r: any) => r.collection + r.token_id}
+            keyFn={(r: any) => `${r.collection_addr}:${r.token_id}`}
             loading={!portfolio}
+            emptyText="No NFTs held"
           />
         </div>
 
@@ -129,19 +130,33 @@ export default function WalletPage({ params }: Params) {
         </div>
       </div>
 
-      {/* PnL by collection */}
+      {/* Historique des trades */}
       <div className="glass rounded-xl border border-[var(--border)] overflow-hidden">
         <div className="px-4 py-3 border-b border-[var(--border)]">
-          <h2 className="text-sm font-semibold text-white">PnL by Collection</h2>
+          <h2 className="text-sm font-semibold text-white">Trade History</h2>
         </div>
         <DataTable
-          columns={pnlColumns}
+          columns={activityColumns}
           data={activity ?? []}
-          keyFn={(r: any) => r.tx_hash}
+          keyFn={(r: any) => r.id ?? r.tx_hash}
           loading={!activity}
           emptyText="No trade history"
         />
       </div>
+    </div>
+  )
+}
+
+// ─── Wallet avatar déterministe ────────────────────────────────────────────
+
+function WalletAvatar({ address }: { address: string }) {
+  const hue = parseInt(address.slice(2, 6), 16) % 360
+  return (
+    <div
+      className="h-14 w-14 rounded-full flex items-center justify-center text-lg font-bold text-white/80 shadow-lg"
+      style={{ background: `linear-gradient(135deg, hsl(${hue}deg 60% 30%), hsl(${(hue + 60) % 360}deg 70% 45%))` }}
+    >
+      {address.slice(2, 4).toUpperCase()}
     </div>
   )
 }
@@ -165,9 +180,11 @@ function LabelBadge({ label }: { label: string }) {
   )
 }
 
-// ─── Table columns ─────────────────────────────────────────────────────────
+// ─── Portfolio columns — champs réels de l'API ────────────────────────────
+// GET /wallets/:address/portfolio retourne :
+//   collection_addr, token_id, collection_name, floor_price_eth
 
-function usePortfolioColumns(getCollectionName: (a: string) => string) {
+function buildPortfolioColumns(getCollectionName: (a: string) => string) {
   return [
     {
       key: 'nft', header: 'NFT',
@@ -175,50 +192,49 @@ function usePortfolioColumns(getCollectionName: (a: string) => string) {
         <div className="flex items-center gap-3">
           <div className="h-9 w-9 rounded-lg bg-gradient-to-br from-blue-600/40 to-purple-600/40 border border-white/10 shrink-0" />
           <div>
-            <p className="text-sm text-white">{r.name || getCollectionName(r.collection)}</p>
+            <p className="text-sm text-white">{r.collection_name || getCollectionName(r.collection_addr)}</p>
             <p className="text-xs font-mono text-[var(--text-muted)]">#{r.token_id}</p>
           </div>
         </div>
       ),
     },
     {
-      key: 'cost', header: 'Cost Basis', align: 'right' as const,
+      key: 'collection', header: 'Collection',
       render: (r: any) => (
-        <span className="font-mono text-sm text-[var(--text-muted)]">{r.cost_basis_eth?.toFixed(4)} ETH</span>
+        <Link
+          href={`/collections/${r.collection_addr}`}
+          className="text-xs font-mono text-blue-400 hover:text-blue-300 transition"
+        >
+          {r.collection_addr.slice(0, 8)}…
+        </Link>
       ),
     },
     {
-      key: 'floor', header: 'Floor Now', align: 'right' as const,
+      key: 'floor', header: 'Floor', align: 'right' as const,
       render: (r: any) => (
-        <span className="font-mono text-sm text-white">{r.floor_eth?.toFixed(4)} ETH</span>
+        <span className="font-mono text-sm text-white">
+          {r.floor_price_eth ? `${Number(r.floor_price_eth).toFixed(4)} ETH` : '—'}
+        </span>
       ),
-    },
-    {
-      key: 'pnl', header: 'Unrealized PnL', align: 'right' as const,
-      render: (r: any) => {
-        const pnl = (r.floor_eth - r.cost_basis_eth)
-        return (
-          <span className={`font-mono text-sm font-semibold ${pnl >= 0 ? 'positive' : 'negative'}`}>
-            {pnl >= 0 ? '+' : ''}{pnl?.toFixed(4)} ETH
-          </span>
-        )
-      },
     },
   ]
 }
 
-function usePnlColumns(getCollectionName: (a: string) => string) {
+// ─── Activity columns — champs réels de l'API ────────────────────────────
+// GET /wallets/:address/activity retourne :
+//   id, tx_hash, collection_addr, token_id, price_eth, price_usd, block_ts, marketplace, side
+
+function buildActivityColumns() {
   return [
     {
-      key: 'action', header: 'Action',
+      key: 'side', header: 'Side',
       render: (r: any) => {
         const colors: Record<string, string> = {
-          buy: 'text-green-400', sell: 'text-red-400',
-          transfer: 'text-blue-400', mint: 'text-purple-400',
+          buy:  'text-green-400', sell: 'text-red-400',
         }
         return (
-          <span className={`text-xs font-semibold uppercase ${colors[r.action] ?? 'text-white'}`}>
-            {r.action}
+          <span className={`text-xs font-bold uppercase ${colors[r.side] ?? 'text-white'}`}>
+            {r.side}
           </span>
         )
       },
@@ -226,27 +242,47 @@ function usePnlColumns(getCollectionName: (a: string) => string) {
     {
       key: 'collection', header: 'Collection',
       render: (r: any) => (
-        <a href={`/collections/${r.collection}`} className="text-xs font-mono text-blue-400 hover:text-blue-300">
-          {getCollectionName(r.collection)}
-        </a>
+        <Link href={`/collections/${r.collection_addr}`} className="text-xs font-mono text-blue-400 hover:text-blue-300">
+          {r.collection_addr.slice(0, 10)}…
+        </Link>
       ),
     },
-  {
-    key: 'value', header: 'Value', align: 'right' as const,
-    render: (r: any) => (
-      <span className="font-mono text-sm text-white">{r.value_eth?.toFixed(4)} ETH</span>
-    ),
-  },
-  {
-    key: 'time', header: 'When', align: 'right' as const,
-    render: (r: any) => {
-      const diff = Math.floor((Date.now() - r.timestamp) / 1000)
-      return (
-        <span className="text-xs text-[var(--text-muted)]">
-          {diff < 3600 ? `${Math.floor(diff/60)}m` : `${Math.floor(diff/3600)}h`} ago
-        </span>
-      )
+    {
+      key: 'token', header: 'Token',
+      render: (r: any) => (
+        <span className="text-xs font-mono text-[var(--text-muted)]">#{r.token_id}</span>
+      ),
     },
-  },
+    {
+      key: 'price', header: 'Price', align: 'right' as const,
+      render: (r: any) => {
+        const eth = Number(r.price_eth ?? 0)
+        const usd = Number(r.price_usd ?? 0)
+        return (
+          <div className="text-right">
+            <p className="font-mono text-sm text-white">{eth.toFixed(4)} ETH</p>
+            {usd > 0 && <p className="font-mono text-xs text-[var(--text-muted)]">${usd.toFixed(0)}</p>}
+          </div>
+        )
+      },
+    },
+    {
+      key: 'marketplace', header: 'Market',
+      render: (r: any) => (
+        <span className="text-xs text-[var(--text-muted)]">{r.marketplace ?? '—'}</span>
+      ),
+    },
+    {
+      key: 'time', header: 'When', align: 'right' as const,
+      render: (r: any) => {
+        const ms = r.block_ts ? new Date(r.block_ts).getTime() : 0
+        if (!ms || isNaN(ms)) return <span className="text-xs text-[var(--text-muted)]">—</span>
+        const diff = Math.max(0, Math.floor((Date.now() - ms) / 1000))
+        const label = diff < 60   ? `${diff}s`
+                    : diff < 3600 ? `${Math.floor(diff / 60)}m`
+                    : `${Math.floor(diff / 3600)}h`
+        return <span className="text-xs text-[var(--text-muted)]">{label} ago</span>
+      },
+    },
   ]
 }

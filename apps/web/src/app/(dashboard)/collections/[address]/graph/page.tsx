@@ -149,8 +149,6 @@ export default function CollectionGraphPage({ params }: Params) {
         </div>
       </div>
 
-      {/* Insights panel */}
-      <InsightsPanel view={view} address={addr} />
     </div>
   )
 }
@@ -204,50 +202,3 @@ function GraphControls({ view, addr }: { view: View; addr: string }) {
   )
 }
 
-// ─── Panel d'insights auto-généré ────────────────────────────────────────────
-
-function InsightsPanel({ view, address }: { view: View; address: string }) {
-  const insights: Record<View, Array<{ icon: string; text: string; color: string }>> = {
-    flow: [
-      { icon: '↗', text: '68% of volume flows from whale wallets', color: 'text-orange-400' },
-      { icon: '⚡', text: 'Abstract Market captures 82% of sales', color: 'text-blue-400' },
-      { icon: '🔄', text: '12% of volume may be wash trading', color: 'text-yellow-400' },
-    ],
-    transactions: [
-      { icon: '🕸',  text: 'Top 3 wallets are interconnected', color: 'text-purple-400' },
-      { icon: '🐋', text: '2 whale wallets dominate outflow', color: 'text-orange-400' },
-      { icon: '📈', text: 'Cluster density increasing this week', color: 'text-green-400' },
-    ],
-    clusters: [
-      { icon: '🎯', text: 'Cluster 0 shows highest win rate (78%)', color: 'text-purple-400' },
-      { icon: '🧠', text: '23 smart money wallets detected', color: 'text-blue-400' },
-      { icon: '⚠️', text: 'Cluster 3 correlates with price dips', color: 'text-red-400' },
-    ],
-    heatmap: [
-      { icon: '📅', text: 'Activity peaks on Thursdays', color: 'text-blue-400' },
-      { icon: '🔥', text: 'Last week was the most active in 30 days', color: 'text-orange-400' },
-      { icon: '💤', text: 'Weekends show 40% less volume', color: 'text-[var(--text-muted)]' },
-    ],
-    holders: [
-      { icon: '⚠️', text: 'Top 10 holders own 61% of supply — high concentration', color: 'text-orange-400' },
-      { icon: '📊', text: 'Gini coefficient 0.74 — moderately unequal', color: 'text-yellow-400' },
-      { icon: '✅', text: '340 unique holders — reasonable diversity', color: 'text-green-400' },
-    ],
-  }
-
-  return (
-    <div className="glass rounded-xl border border-[var(--border)] px-5 py-4">
-      <p className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider mb-3">
-        Auto-detected insights
-      </p>
-      <div className="grid grid-cols-3 gap-4">
-        {insights[view].map((ins, i) => (
-          <div key={i} className="flex items-start gap-3">
-            <span className="text-lg leading-none mt-0.5">{ins.icon}</span>
-            <p className={`text-sm ${ins.color}`}>{ins.text}</p>
-          </div>
-        ))}
-      </div>
-    </div>
-  )
-}

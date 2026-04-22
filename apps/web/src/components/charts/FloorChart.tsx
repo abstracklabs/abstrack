@@ -93,8 +93,8 @@ export function FloorChart({ collection, period = '7d', height = 240 }: Props) {
     if (!seriesRef.current || !data?.length) return
     const formatted = data
       .map((d: any) => ({
-        time:  Math.floor(new Date(d.t).getTime() / 1000),
-        value: parseFloat(d.floor),
+        time:  Math.floor(new Date(d.hour).getTime() / 1000),
+        value: parseFloat(d.floor_eth),
       }))
       .sort((a: any, b: any) => a.time - b.time)
     seriesRef.current.setData(formatted)
