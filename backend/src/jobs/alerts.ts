@@ -128,9 +128,30 @@ async function checkAlert(condition: AlertCondition): Promise<object | null> {
         : null
     }
 
-    case 'floor_drop':
-      // MVP : non implémenté (nécessite un oracle)
-      return null
+    case 'floor_drop': {
+      // Floor drop : baisse du floor price entre la dernière heure et les 24h précédentes
+      // threshold = pourcentage de baisse (ex: 10 = −10%)
+      if (!condition.collection) return null
+      const row = await db.queryOne<{ curr: string | null; prev: string | null }>(
+        `SELECT
+           MIN(price_eth) FILTER (
+             WHERE block_ts > now() - INTERVAL '1 hour'
+           ) AS curr,
+           MIN(price_eth) FILTER (
+             WHERE block_ts BETWEEN now() - INTERVAL '25 hours' AND now() - INTERVAL '1 hour'
+           ) AS prev
+         FROM nft_sales
+         WHERE collection_addr = $1 AND price_eth > 0`,
+        [condition.collection.toLowerCase()]
+      )
+      const curr = parseFloat(row?.curr ?? '0')
+      const prev = parseFloat(row?.prev ?? '0')
+      if (curr <= 0 || prev <= 0) return null
+      const dropPct = ((prev - curr) / prev) * 100
+      return dropPct >= threshold
+        ? { type: 'floor_drop', collection: condition.collection, drop_pct: Math.round(dropPct * 10) / 10, floor_now: curr, floor_prev: prev }
+        : null
+    }
 
     default:
       return null

@@ -26,7 +26,8 @@ export async function collectionsRoutes(app: FastifyInstance) {
     return withCache(key, 10_000, () =>
       db.query(
         `SELECT address, name, symbol, total_supply,
-                floor_price_eth, volume_24h_eth, sales_count_24h, thumbnail_url
+                floor_price_eth, volume_24h_eth, sales_count_24h,
+                change_24h_pct, thumbnail_url
          FROM collections
          ORDER BY CASE WHEN $2 THEN sales_count_24h ELSE volume_24h_eth END DESC
          LIMIT $1`,
@@ -60,7 +61,8 @@ export async function collectionsRoutes(app: FastifyInstance) {
          SELECT COUNT(*) AS total_sales FROM nft_sales WHERE collection_addr = $1
        )
        SELECT c.address, c.name, c.symbol, c.total_supply,
-              c.floor_price_eth, c.volume_24h_eth, c.sales_count_24h, c.thumbnail_url, c.created_at,
+              c.floor_price_eth, c.volume_24h_eth, c.sales_count_24h,
+              c.change_24h_pct, c.thumbnail_url, c.created_at,
               h.holder_count::int,
               t.total_sales::int
        FROM collections c, holders h, totals t

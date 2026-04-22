@@ -120,12 +120,16 @@ class GapDetector:
             failed += gap_failed
 
             if gap_filled > 0:
-                # Marque la plage comme indexée maintenant qu'elle est traitée
-                await self.db.mark_range_processed(gap.gap_from, gap.gap_to)
                 logger.info(
                     f"Gap filled [{gap.gap_from}–{gap.gap_to}] "
                     f"— {gap_filled} OK, {gap_failed} failed"
                 )
+                if gap_failed == 0:
+                    # Tous les blocs ont réussi → fusionne en une seule plage
+                    # (les blocs individuels sont déjà marqués par _process_block)
+                    await self.db.mark_range_processed(gap.gap_from, gap.gap_to)
+                # Sinon : les blocs réussis sont déjà marqués individuellement
+                # Les blocs échoués restent comme sous-trous → GapDetector les reprendra
 
         logger.info(
             f"Gap fill complete — {filled} blocks indexed, {failed} failed",

@@ -273,8 +273,10 @@ class LiveListener:
             )
         except Exception as e:
             if from_block == to_block:
-                logger.warning(f"Block {from_block} get_logs failed: {e!r} — skipping")
-                await self.db.save_checkpoint(from_block)
+                # Bloc individuel irrécupérable : on skippe sans sauvegarder de checkpoint.
+                # La boucle _catchup appellera save_checkpoint(batch_end) après le retour,
+                # créant un trou dans indexed_block_ranges que GapDetector récupérera.
+                logger.warning(f"Block {from_block} get_logs failed permanently: {e!r} — skipping")
                 return
             logger.debug(f"Batch {from_block}-{to_block} failed ({type(e).__name__}) — splitting")
             mid = (from_block + to_block) // 2
