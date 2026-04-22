@@ -174,6 +174,41 @@ class Database:
                 )
         await _with_retry(_do)
 
+    # ─── Generic state store ─────────────────────────────────────────────────
+    # Utilisé pour persister l'état de réindexation à travers les redémarrages.
+
+    async def get_state(self, key: str) -> Optional[str]:
+        """Lit une valeur arbitraire depuis indexer_state. Retourne None si absente."""
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT value FROM indexer_state WHERE key = $1", key
+            )
+            return row["value"] if row else None
+
+    async def set_state(self, key: str, value: str) -> None:
+        """Écrit (upsert) une valeur dans indexer_state."""
+        async def _do():
+            async with self._pool.acquire() as conn:
+                await conn.execute(
+                    """
+                    INSERT INTO indexer_state (key, value)
+                    VALUES ($1, $2)
+                    ON CONFLICT (key) DO UPDATE
+                      SET value = EXCLUDED.value, updated_at = now()
+                    """,
+                    key, value,
+                )
+        await _with_retry(_do)
+
+    async def delete_state(self, key: str) -> None:
+        """Supprime une clé de indexer_state (idempotent)."""
+        async def _do():
+            async with self._pool.acquire() as conn:
+                await conn.execute(
+                    "DELETE FROM indexer_state WHERE key = $1", key
+                )
+        await _with_retry(_do)
+
     # ─── Collections ─────────────────────────────────────────────────────────
 
     async def upsert_collection(self, address: str) -> bool:

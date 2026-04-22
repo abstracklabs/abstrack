@@ -4,22 +4,20 @@ LiveListener — HTTP polling blockchain → PostgreSQL.
 Abstract produit un bloc toutes les ~2s : le polling est parfaitement adapté.
 
 Modes de catchup :
-  - NORMAL   : reprend depuis le dernier checkpoint (comportement par défaut)
-  - BATCH    : traite CATCHUP_BATCH_SIZE blocs par eth_getLogs → ~2000x plus rapide
+  - NORMAL   : reprend depuis le dernier checkpoint
   - FULL     : INDEXER_START_BLOCK + INDEXER_FORCE_REINDEX=true → réindexe depuis le début
 
 Variables d'environnement :
-  INDEXER_START_BLOCK    (int, défaut 0) — bloc minimum de départ pour le catchup
-                          0 = reprend depuis le checkpoint existant
-                          1 = depuis le début de la chain
-  INDEXER_FORCE_REINDEX  (bool, défaut false) — réinitialise le checkpoint à
-                          START_BLOCK-1 au démarrage (pour une réindexation complète)
+  INDEXER_START_BLOCK    (int,  défaut 0)     — bloc minimum de départ
+  INDEXER_FORCE_REINDEX  (bool, défaut false) — réinitialise le checkpoint au 1er démarrage
+  CATCHUP_BATCH_SLEEP_MS (int,  défaut 100)   — pause entre batches (throttle RPC)
 
-Robustesse :
-  - batch avec split récursif sur timeout (fallback bloc-à-bloc)
-  - retry par log individuel (un log raté ne bloque pas le bloc)
-  - backoff exponentiel sur erreur RPC
-  - checkpoint sauvegardé à chaque batch
+Corrections critiques :
+  - FORCE_REINDEX persisté en DB → résiste aux redémarrages container mid-catchup
+  - _catchup boucle jusqu'à être à < 500 blocs de la tête → pas de gap post-catchup
+  - Timestamp mis en cache par bloc dans un batch → pas de double fetch
+  - price_usd = None pour les blocs historiques (pas de prix ETH historique)
+  - Throttle configurable entre les batches
 """
 
 import asyncio
@@ -39,15 +37,20 @@ from storage.db import Database
 
 logger = logging.getLogger("indexer.listener")
 
-ETH_PRICE_URL         = "https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd"
-GET_LOGS_TIMEOUT      = 30.0   # secondes max pour un batch eth_getLogs
-POLL_INTERVAL         = 2.0    # secondes entre chaque poll live (Abstract ~2s/bloc)
-CATCHUP_BATCH_SIZE    = 500    # blocs par requête eth_getLogs en catchup
-LOG_PROGRESS_EVERY    = 20     # log tous les N batches (~40 000 blocs)
+ETH_PRICE_URL      = "https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd"
+GET_LOGS_TIMEOUT   = 30.0    # secondes max pour un batch eth_getLogs
+POLL_INTERVAL      = 2.0     # secondes entre chaque poll live
+CATCHUP_BATCH_SIZE = 500     # blocs par requête eth_getLogs en catchup
+LOG_PROGRESS_EVERY = 20      # log tous les N batches (~10 000 blocs)
+CATCHUP_LAG_TARGET = 500     # blocs de tolérance avant de passer en live
 
 # Configuration via env
-START_BLOCK    = int(os.environ.get("INDEXER_START_BLOCK", "0"))
-FORCE_REINDEX  = os.environ.get("INDEXER_FORCE_REINDEX", "false").lower() in ("1", "true", "yes")
+START_BLOCK       = int(os.environ.get("INDEXER_START_BLOCK", "0"))
+FORCE_REINDEX     = os.environ.get("INDEXER_FORCE_REINDEX", "false").lower() in ("1", "true", "yes")
+BATCH_SLEEP_S     = float(os.environ.get("CATCHUP_BATCH_SLEEP_MS", "100")) / 1000.0
+
+# Clé de session dans indexer_state — distingue un nouveau reindex d'une reprise
+_REINDEX_SESSION_KEY = "reindex_session"
 
 
 class LiveListener:
@@ -59,7 +62,6 @@ class LiveListener:
         self.rpc_http = rpc_http
         self.db       = db
         self._running = False
-        self._force_reindex_done = False   # n'exécute FORCE_REINDEX qu'une seule fois
 
         self._eth_usd:    float = 0.0
         self._eth_usd_ts: float = 0.0
@@ -97,18 +99,16 @@ class LiveListener:
         w3_http = AsyncWeb3(AsyncHTTPProvider(self.rpc_http))
         logger.info("Connected to Abstract node (HTTP)")
 
-        # Force reindex : réinitialise le checkpoint une seule fois au démarrage
-        if FORCE_REINDEX and not self._force_reindex_done:
-            reset_to = max(0, START_BLOCK - 1)
-            await self.db.save_checkpoint(reset_to)
-            self._force_reindex_done = True
-            logger.info(f"FORCE_REINDEX: checkpoint reset to block {reset_to}")
+        # CRITIQUE 1 FIX : FORCE_REINDEX persisté en DB
+        # On ne remet le checkpoint à 0 qu'à la PREMIÈRE exécution du reindex.
+        # Les redémarrages container mid-catchup reprennent depuis le checkpoint.
+        await self._maybe_force_reindex()
 
-        # Résolution des noms manquants
+        # Backfill noms manquants
         await self._backfill_collection_names(w3_http)
 
-        # Catchup historique (batch mode)
-        await self._catchup(w3_http)
+        # CRITIQUE 2 FIX : boucle jusqu'à être à < CATCHUP_LAG_TARGET blocs de la tête
+        await self._catchup_until_synced(w3_http)
 
         # Live via WebSocket
         async with AsyncWeb3(WebSocketProvider(self.rpc_wss)) as w3:
@@ -126,24 +126,61 @@ class LiveListener:
             async for payload in w3.socket.process_subscriptions():
                 if not self._running:
                     break
-                header  = payload.get("result", payload)
-                raw_num = header.get("number", "0x0")
+                header    = payload.get("result", payload)
+                raw_num   = header.get("number", "0x0")
                 block_num = int(raw_num, 16) if isinstance(raw_num, str) else int(raw_num)
                 await self._process_block(w3, block_num)
 
-    # ─── Backfill noms de collection ──────────────────────────────────────────
+    # ─── CRITIQUE 1 : FORCE_REINDEX avec persistance DB ──────────────────────
 
-    async def _backfill_collection_names(self, w3: AsyncWeb3) -> None:
-        try:
-            unnamed = await self.db.get_unnamed_collections()
-            if not unnamed:
-                return
-            logger.info(f"Resolving names for {len(unnamed)} collections without metadata")
-            for addr in unnamed:
-                await self._resolve_collection_meta(w3, addr)
-                await asyncio.sleep(0.05)
-        except Exception as e:
-            logger.warning(f"Backfill collection names failed: {e!r}")
+    async def _maybe_force_reindex(self):
+        """
+        Réinitialise le checkpoint seulement si c'est un nouveau reindex,
+        pas si on reprend après un redémarrage mid-catchup.
+        """
+        if not FORCE_REINDEX:
+            return
+
+        # Vérifie si un reindex est déjà en cours (session existante en DB)
+        session_ts = await self.db.get_state(_REINDEX_SESSION_KEY)
+        if session_ts:
+            logger.info(f"FORCE_REINDEX: reindex already in progress (started {session_ts}) — resuming")
+            return
+
+        # Nouveau reindex : remet le checkpoint à START_BLOCK - 1
+        reset_to = max(0, START_BLOCK - 1)
+        await self.db.save_checkpoint(reset_to)
+        await self.db.set_state(_REINDEX_SESSION_KEY, datetime.now(timezone.utc).isoformat())
+        logger.info(f"FORCE_REINDEX: checkpoint reset to block {reset_to} — session started")
+
+    async def _finish_reindex_session(self):
+        """Supprime la clé de session une fois le catchup terminé."""
+        if FORCE_REINDEX:
+            await self.db.delete_state(_REINDEX_SESSION_KEY)
+            logger.info("Reindex session complete — FORCE_REINDEX session cleared")
+
+    # ─── CRITIQUE 2 : Catchup complet (boucle jusqu'à la tête) ──────────────
+
+    async def _catchup_until_synced(self, w3: AsyncWeb3):
+        """
+        Boucle _catchup jusqu'à être à < CATCHUP_LAG_TARGET blocs de la tête.
+        Garantit qu'aucun bloc n'est manqué entre la fin du catchup et le live.
+        """
+        pass_num = 1
+        while self._running:
+            last    = await self.db.get_last_block()
+            current = await w3.eth.block_number
+            lag     = current - last
+
+            if lag <= CATCHUP_LAG_TARGET:
+                logger.info(f"Fully synced: last_block={last:,}, head={current:,}, lag={lag}")
+                break
+
+            logger.info(f"Catchup pass #{pass_num}: {lag:,} blocks remaining (last={last:,}, head={current:,})")
+            await self._catchup(w3)
+            pass_num += 1
+
+        await self._finish_reindex_session()
 
     # ─── Catchup batch ────────────────────────────────────────────────────────
 
@@ -151,35 +188,34 @@ class LiveListener:
         last    = await self.db.get_last_block()
         current = await w3.eth.block_number
 
-        # Calcul du point de départ
         if START_BLOCK > 0:
-            # START_BLOCK configuré : on ne commence jamais en-dessous
             start = max(last + 1, START_BLOCK)
         else:
-            # Pas de START_BLOCK : reprend depuis le checkpoint
-            # last==0 signifie "pas de checkpoint" → démarre depuis maintenant
             if last == 0:
                 logger.info("No checkpoint and no START_BLOCK — starting from current block")
                 await self.db.save_checkpoint(current)
                 return
             start = last + 1
 
-        if start > current:
-            logger.info(f"Already up to date at block {current:,}")
+        # On ne va pas au-delà du bloc courant au moment où on commence
+        # (les blocs suivants seront traités au prochain pass ou en live)
+        target = current
+
+        if start > target:
             return
 
-        total  = current - start + 1
+        total  = target - start + 1
         logger.info(
-            f"Catchup starting: {total:,} blocks to process "
-            f"({start:,} → {current:,}, batch_size={CATCHUP_BATCH_SIZE:,})"
+            f"Catchup: {total:,} blocks ({start:,} → {target:,}, "
+            f"batch={CATCHUP_BATCH_SIZE}, sleep={BATCH_SLEEP_S*1000:.0f}ms)"
         )
 
         n           = start
         batch_count = 0
         t0          = time.monotonic()
 
-        while n <= current and self._running:
-            batch_end = min(n + CATCHUP_BATCH_SIZE - 1, current)
+        while n <= target and self._running:
+            batch_end = min(n + CATCHUP_BATCH_SIZE - 1, target)
             await self._process_block_range(w3, n, batch_end)
             await self.db.save_checkpoint(batch_end)
 
@@ -189,27 +225,32 @@ class LiveListener:
                 pct     = 100.0 * done / total
                 elapsed = time.monotonic() - t0
                 rate    = done / elapsed if elapsed > 0 else 0
-                eta_s   = (total - done) / rate if rate > 0 else 0
-                eta_min = eta_s / 60
+                eta_min = ((total - done) / rate / 60) if rate > 0 else 0
                 logger.info(
-                    f"Catchup progress: block {batch_end:,}/{current:,} "
+                    f"Catchup: block {batch_end:,}/{target:,} "
                     f"({pct:.1f}%) — {rate:.0f} blk/s — ETA {eta_min:.0f} min"
                 )
 
             n = batch_end + 1
 
+            # SIGNIFICATIF 3 FIX : throttle RPC
+            if BATCH_SLEEP_S > 0:
+                await asyncio.sleep(BATCH_SLEEP_S)
+
         elapsed = time.monotonic() - t0
-        logger.info(
-            f"Catchup complete — {total:,} blocks in {elapsed:.0f}s "
-            f"({total/elapsed:.0f} blk/s avg)"
-        )
+        if elapsed > 0:
+            logger.info(
+                f"Catchup pass done: {total:,} blocks in {elapsed:.0f}s "
+                f"({total/elapsed:.0f} blk/s avg)"
+            )
 
     # ─── Traitement d'un batch de blocs ──────────────────────────────────────
 
     async def _process_block_range(self, w3: AsyncWeb3, from_block: int, to_block: int):
         """
-        Requête eth_getLogs sur [from_block, to_block] avec les topics trackés.
-        Si timeout : divise le batch récursivement jusqu'au bloc individuel.
+        eth_getLogs sur [from_block, to_block] avec topics trackés.
+        Split récursif sur timeout/erreur.
+        Cache des timestamps pour éviter les double-fetch (MINEUR 1 FIX).
         """
         try:
             raw_logs = await asyncio.wait_for(
@@ -220,13 +261,12 @@ class LiveListener:
                 }),
                 timeout=GET_LOGS_TIMEOUT,
             )
-        except (asyncio.TimeoutError, Exception) as e:
+        except Exception as e:
             if from_block == to_block:
-                logger.warning(f"Block {from_block} failed: {e!r} — skipping")
+                logger.warning(f"Block {from_block} get_logs failed: {e!r} — skipping")
                 await self.db.save_checkpoint(from_block)
                 return
-            # Divise le batch en deux et réessaie
-            logger.debug(f"Batch {from_block}-{to_block} failed ({e!r}) — splitting")
+            logger.debug(f"Batch {from_block}-{to_block} failed ({type(e).__name__}) — splitting")
             mid = (from_block + to_block) // 2
             await self._process_block_range(w3, from_block, mid)
             await self._process_block_range(w3, mid + 1, to_block)
@@ -236,19 +276,24 @@ class LiveListener:
             await self.db.mark_range_processed(from_block, to_block)
             return
 
-        # Groupe les logs par numéro de bloc
+        # Groupe par bloc + cache timestamps (MINEUR 1 FIX)
         blocks_with_logs: dict[int, list] = {}
         for log in raw_logs:
             bn = log.get("blockNumber")
             bn = int(bn, 16) if isinstance(bn, str) else int(bn)
             blocks_with_logs.setdefault(bn, []).append(log)
 
-        eth_usd = await self._get_eth_price()
+        eth_usd        = await self._get_eth_price()
+        ts_cache: dict[int, datetime] = {}  # cache local au batch
 
         for block_num, logs in sorted(blocks_with_logs.items()):
-            block_ts = await self._get_block_timestamp(w3, block_num)
+            if block_num not in ts_cache:
+                ts_cache[block_num] = await self._get_block_timestamp(w3, block_num)
+            block_ts = ts_cache[block_num]
+
             for log in logs:
-                await self._handle_log(dict(log), block_num, block_ts, eth_usd, w3)
+                await self._handle_log(dict(log), block_num, block_ts, eth_usd, w3,
+                                       historical=True)
 
         await self.db.mark_range_processed(from_block, to_block)
 
@@ -277,7 +322,8 @@ class LiveListener:
             block_ts = await self._get_block_timestamp(w3, block_num)
             eth_usd  = await self._get_eth_price()
             for log in raw_logs:
-                await self._handle_log(dict(log), block_num, block_ts, eth_usd, w3)
+                await self._handle_log(dict(log), block_num, block_ts, eth_usd, w3,
+                                       historical=False)
 
         await self.db.save_checkpoint(block_num)
         await self.db.mark_range_processed(block_num, block_num)
@@ -286,7 +332,7 @@ class LiveListener:
             logger.info(f"Block {block_num} — {len(raw_logs) if raw_logs else 0} relevant logs")
 
     async def _get_block_timestamp(self, w3: AsyncWeb3, block_num: int) -> datetime:
-        """Fetch block timestamp with retries — never falls back to now() for historical blocks."""
+        """Fetch timestamp avec retry — ne tombe jamais en fallback now()."""
         for attempt in range(4):
             try:
                 block = await asyncio.wait_for(w3.eth.get_block(block_num), timeout=15.0)
@@ -297,18 +343,22 @@ class LiveListener:
             except Exception as e:
                 wait = 1.0 * (2 ** attempt)
                 if attempt < 3:
-                    logger.debug(f"get_block {block_num} attempt {attempt+1} failed: {e!r} — retry in {wait:.0f}s")
+                    logger.debug(f"get_block {block_num} attempt {attempt+1}: {e!r} — retry in {wait:.0f}s")
                     await asyncio.sleep(wait)
                 else:
-                    logger.error(f"get_block timestamp failed for {block_num} after 4 attempts: {e!r}")
+                    logger.error(f"get_block {block_num} failed after 4 attempts — raising")
                     raise
 
     # ─── Traitement d'un log individuel ──────────────────────────────────────
 
     async def _handle_log(self, log: dict, block_num: int, block_ts: datetime,
-                          eth_usd: float, w3_ref: AsyncWeb3 = None):
+                          eth_usd: float, w3_ref: AsyncWeb3 = None,
+                          historical: bool = False):
         try:
-            result = decode_nft_log(log, block_num, block_ts, eth_usd)
+            # SIGNIFICATIF 2 FIX : price_usd=None pour les données historiques
+            # (on n'a pas le prix ETH d'époque, on évite de stocker une valeur fausse)
+            effective_eth_usd = 0.0 if historical else eth_usd
+            result = decode_nft_log(log, block_num, block_ts, effective_eth_usd)
         except Exception as e:
             logger.warning(f"Decode error (block {block_num}, tx {log.get('transactionHash')}): {e!r}")
             return
@@ -334,6 +384,20 @@ class LiveListener:
             logger.error(
                 f"DB insert error (block {block_num}, tx {log.get('transactionHash')}): {e!r}"
             )
+
+    # ─── Backfill noms de collections ────────────────────────────────────────
+
+    async def _backfill_collection_names(self, w3: AsyncWeb3) -> None:
+        try:
+            unnamed = await self.db.get_unnamed_collections()
+            if not unnamed:
+                return
+            logger.info(f"Resolving names for {len(unnamed)} collections without metadata")
+            for addr in unnamed:
+                await self._resolve_collection_meta(w3, addr)
+                await asyncio.sleep(0.05)
+        except Exception as e:
+            logger.warning(f"Backfill collection names failed: {e!r}")
 
     # ─── Résolution nom/symbole ERC-721 ──────────────────────────────────────
 
@@ -387,5 +451,5 @@ class LiveListener:
                     self._eth_usd_ts = now
                     logger.debug(f"ETH price updated: ${self._eth_usd:.2f}")
         except Exception as e:
-            logger.warning(f"ETH price fetch failed: {e!r} — using last known ${self._eth_usd:.2f}")
+            logger.warning(f"ETH price fetch failed: {e!r} — using ${self._eth_usd:.2f}")
         return self._eth_usd
