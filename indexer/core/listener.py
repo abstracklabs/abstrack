@@ -373,14 +373,25 @@ class LiveListener:
                 if kind == "sale":
                     is_new = await self.db.upsert_collection(result["collection_addr"])
                     if is_new:
-                        await self._resolve_collection_meta(w3_ref, result["collection_addr"])
+                        if historical:
+                            # En catchup : résolution en tâche de fond — ne bloque pas le batch
+                            asyncio.create_task(
+                                self._resolve_collection_meta(w3_ref, result["collection_addr"])
+                            )
+                        else:
+                            await self._resolve_collection_meta(w3_ref, result["collection_addr"])
                     inserted = await self.db.insert_sale(result, skip_stats_refresh=historical)
                     if inserted:
                         logger.debug(f"Sale inserted: {result['tx_hash']} — {result['price_eth']:.3f} ETH")
                 elif kind == "transfer":
                     is_new = await self.db.upsert_collection(result["collection_addr"])
                     if is_new:
-                        await self._resolve_collection_meta(w3_ref, result["collection_addr"])
+                        if historical:
+                            asyncio.create_task(
+                                self._resolve_collection_meta(w3_ref, result["collection_addr"])
+                            )
+                        else:
+                            await self._resolve_collection_meta(w3_ref, result["collection_addr"])
                     await self.db.insert_transfer(result)
             except Exception as e:
                 logger.error(
