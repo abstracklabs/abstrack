@@ -254,22 +254,27 @@ class Database:
 
     # ─── NFT Sales ───────────────────────────────────────────────────────────
 
-    async def insert_sale(self, sale: dict) -> bool:
+    async def insert_sale(self, sale: dict, skip_stats_refresh: bool = False) -> bool:
         """
         Insère une vente. Retourne True si insérée, False si doublon.
-        Refresh stats seulement si insertion réelle (pas doublon).
+
+        skip_stats_refresh=True durant le catchup historique :
+          - évite de recalculer les stats 24h pour chaque vente historique
+          - les ventes historiques ont block_ts << now()-24h → stats toujours à 0
+          - empêche d'écraser les stats réelles des collections actives
         """
         async def _do():
             async with self._pool.acquire() as conn:
                 result = await conn.execute(
                     """
                     INSERT INTO nft_sales
-                      (tx_hash, block_number, block_ts, collection_addr,
+                      (tx_hash, log_index, block_number, block_ts, collection_addr,
                        token_id, seller, buyer, price_eth, price_usd, marketplace)
-                    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
-                    ON CONFLICT (tx_hash) DO NOTHING
+                    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+                    ON CONFLICT (tx_hash, log_index) DO NOTHING
                     """,
                     sale["tx_hash"],
+                    sale.get("log_index", 0),
                     sale["block_number"],
                     sale["block_ts"],
                     sale["collection_addr"].lower(),
@@ -283,8 +288,8 @@ class Database:
                 return result == "INSERT 0 1"  # True = nouvelle ligne, False = conflit
 
         inserted = await _with_retry(_do)
-        if inserted:
-            # Refresh stats seulement si la vente est nouvelle
+        if inserted and not skip_stats_refresh:
+            # Refresh stats seulement si insertion réelle ET pas en catchup historique
             await self._refresh_stats(sale["collection_addr"].lower())
         return bool(inserted)
 
@@ -297,6 +302,29 @@ class Database:
         except Exception as e:
             # Non-critique : les stats seront correctes au prochain cycle
             logger.warning(f"refresh_collection_stats failed for {addr}: {e!r}")
+
+    async def refresh_all_collection_stats(self) -> int:
+        """
+        Recalcule les stats 24h de toutes les collections.
+        Appelé une seule fois après la fin du catchup historique
+        (les stats ont été skippées pendant l'indexation pour éviter de les remettre à zéro).
+        Retourne le nombre de collections mises à jour.
+        """
+        async def _do():
+            async with self._pool.acquire() as conn:
+                rows = await conn.fetch("SELECT address FROM collections")
+                updated = 0
+                for row in rows:
+                    await conn.execute("SELECT refresh_collection_stats($1)", row["address"])
+                    updated += 1
+                return updated
+        try:
+            count = await _with_retry(_do)
+            logger.info(f"refresh_all_collection_stats: {count} collections updated")
+            return count or 0
+        except Exception as e:
+            logger.warning(f"refresh_all_collection_stats failed: {e!r}")
+            return 0
 
     # ─── NFT Transfers ────────────────────────────────────────────────────────
 

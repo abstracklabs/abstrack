@@ -154,7 +154,17 @@ class LiveListener:
         logger.info(f"FORCE_REINDEX: checkpoint reset to block {reset_to} — session started")
 
     async def _finish_reindex_session(self):
-        """Supprime la clé de session une fois le catchup terminé."""
+        """
+        Tâches de finalisation après le catchup :
+        1. Recalcule les stats 24h de toutes les collections (skippées pendant le catchup).
+        2. Supprime la clé de session FORCE_REINDEX.
+        """
+        logger.info("Catchup complete — refreshing all collection stats…")
+        try:
+            await self.db.refresh_all_collection_stats()
+        except Exception as e:
+            logger.warning(f"refresh_all_collection_stats failed: {e!r}")
+
         if FORCE_REINDEX:
             await self.db.delete_state(_REINDEX_SESSION_KEY)
             logger.info("Reindex session complete — FORCE_REINDEX session cleared")
@@ -355,8 +365,8 @@ class LiveListener:
                           eth_usd: float, w3_ref: AsyncWeb3 = None,
                           historical: bool = False):
         try:
-            # SIGNIFICATIF 2 FIX : price_usd=None pour les données historiques
-            # (on n'a pas le prix ETH d'époque, on évite de stocker une valeur fausse)
+            # price_usd=None pour les blocs historiques : on n'a pas le prix ETH d'époque,
+            # stocker le prix actuel fausserait toutes les stats USD historiques.
             effective_eth_usd = 0.0 if historical else eth_usd
             result = decode_nft_log(log, block_num, block_ts, effective_eth_usd)
         except Exception as e:
@@ -371,8 +381,9 @@ class LiveListener:
             if kind == "sale":
                 is_new = await self.db.upsert_collection(result["collection_addr"])
                 if is_new:
+                    # En mode historique on résout quand même le nom (appel unique par collection)
                     await self._resolve_collection_meta(w3_ref, result["collection_addr"])
-                inserted = await self.db.insert_sale(result)
+                inserted = await self.db.insert_sale(result, skip_stats_refresh=historical)
                 if inserted:
                     logger.debug(f"Sale inserted: {result['tx_hash']} — {result['price_eth']:.3f} ETH")
             elif kind == "transfer":
@@ -422,12 +433,25 @@ class LiveListener:
             data = bytes(raw) if raw else b""
             if not data:
                 return ""
+
+            # ABI standard : data[0:32] = offset (en bytes) vers la longueur de la string.
+            # L'offset minimum valide est 32 (une seule valeur dynamique).
+            # Certains contrats non-standards retournent offset != 32 (ex : 0x40, 0x60).
+            # On décode correctement quel que soit l'offset.
             if len(data) >= 64:
                 offset = int.from_bytes(data[0:32], "big")
-                if offset == 32:
-                    str_len = int.from_bytes(data[32:64], "big")
-                    if str_len > 0 and len(data) >= 64 + str_len:
-                        return data[64:64 + str_len].decode("utf-8", errors="replace").strip("\x00").strip()[:128]
+                if 32 <= offset < len(data) - 32:
+                    str_len = int.from_bytes(data[offset:offset + 32], "big")
+                    end = offset + 32 + str_len
+                    if 0 < str_len <= 512 and end <= len(data):
+                        return (
+                            data[offset + 32: end]
+                            .decode("utf-8", errors="replace")
+                            .strip("\x00")
+                            .strip()[:128]
+                        )
+
+            # Fallback : encodage bytes32 (contrats anciens qui retournent la string brute)
             if len(data) >= 32:
                 return data[:32].rstrip(b"\x00").decode("utf-8", errors="ignore").strip()[:128]
             return ""

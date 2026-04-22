@@ -51,9 +51,9 @@ class GapDetector:
     # (plus loin = déjà considéré comme "archivé", pas critique)
     LOOKBACK_BLOCKS = 10_000
 
-    # Un trou de moins de MIN_GAP_SIZE blocs peut être ignoré
-    # (correspond souvent à un bloc vide sans event NFT)
-    MIN_GAP_SIZE = 5
+    # Tous les trous sont traités, même les blocs individuels.
+    # Un bloc skippé en live (timeout) crée un trou de taille 1 : on le remplit.
+    MIN_GAP_SIZE = 1
 
     def __init__(self, db: Database, process_block_fn):
         """
