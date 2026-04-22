@@ -57,6 +57,41 @@ export interface GlobalStats {
   avg_price_eth:      number
 }
 
+export interface MarketOverview {
+  computed_at:              string
+  // 24h
+  sales_24h:                number
+  volume_24h_eth:           number
+  avg_price_24h_eth:        number
+  collections_active_24h:   number
+  unique_buyers_24h:        number
+  unique_sellers_24h:       number
+  // 7d
+  sales_7d:                 number
+  volume_7d_eth:            number
+  collections_active_7d:    number
+  // growth
+  volume_prev_24h_eth:      number
+  sales_prev_24h:           number
+  // all-time
+  total_sales_alltime:      number
+  total_volume_alltime_eth: number
+  total_collections:        number
+  last_indexed_block:       number | null
+}
+
+export interface WalletPnl {
+  total_spent_eth:    string
+  total_received_eth: string
+  realized_pnl_eth:   string
+  buy_count:          number
+  sell_count:         number
+  unique_collections: number
+  most_traded_coll:   string | null
+  avg_buy_price_eth:  string
+  avg_sell_price_eth: string
+}
+
 // ─── Alpha Feed ────────────────────────────────────────────────────────────
 
 export interface AlphaEvent {

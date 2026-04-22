@@ -7,6 +7,7 @@ import { StatCard }        from '../../../../components/ui/StatCard'
 import { DataTable }       from '../../../../components/ui/DataTable'
 import { WalletActivity }  from '../../../../components/live/WalletActivity'
 import { useCollectionNames } from '../../../../lib/hooks/useCollectionNames'
+import type { WalletPnl } from '../../../../lib/types'
 
 const API = process.env.NEXT_PUBLIC_API_URL
 
@@ -15,10 +16,17 @@ interface Params { params: Promise<{ address: string }> }
 export default function WalletPage({ params }: Params) {
   const { address: addr } = use(params)
 
-  // Profile stats : buys, sells, transfers counts
+  // Profile stats : labels, transfers count
   const { data: profile } = useQuery({
     queryKey: ['wallet', addr],
     queryFn:  () => fetch(`${API}/api/v1/wallets/${addr}`).then(r => r.json()),
+    staleTime: 60_000,
+  })
+
+  // Realized PnL — single-scan SQL function (wallet_realized_pnl)
+  const { data: pnl } = useQuery<WalletPnl>({
+    queryKey: ['wallet-pnl', addr],
+    queryFn:  () => fetch(`${API}/api/v1/wallets/${addr}/pnl`).then(r => r.json()),
     staleTime: 60_000,
   })
 
@@ -36,11 +44,10 @@ export default function WalletPage({ params }: Params) {
     staleTime: 30_000,
   })
 
-  // Stats calculées depuis les données réelles
-  const buysEth    = Number(profile?.buys?.total_eth ?? 0)
-  const sellsEth   = Number(profile?.sells?.total_eth ?? 0)
-  const realizedPnl = sellsEth - buysEth
-  const totalTrades = (Number(profile?.buys?.count ?? 0) + Number(profile?.sells?.count ?? 0))
+  const buysEth     = Number(pnl?.total_spent_eth ?? 0)
+  const sellsEth    = Number(pnl?.total_received_eth ?? 0)
+  const realizedPnl = Number(pnl?.realized_pnl_eth ?? 0)
+  const totalTrades = (Number(pnl?.buy_count ?? 0) + Number(pnl?.sell_count ?? 0))
 
   const labels = profile?.labels ?? []
   const { getCollectionName } = useCollectionNames()
@@ -81,26 +88,29 @@ export default function WalletPage({ params }: Params) {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <StatCard
           label="Realized P&L"
-          value={`${realizedPnl >= 0 ? '+' : ''}${realizedPnl.toFixed(4)} ETH`}
+          value={pnl ? `${realizedPnl >= 0 ? '+' : ''}${realizedPnl.toFixed(4)} ETH` : '—'}
           accent={realizedPnl >= 0 ? 'green' : 'red'}
           sub="sells − buys"
         />
         <StatCard
           label="Total Spent"
-          value={`${buysEth.toFixed(3)} ETH`}
-          sub={`${profile?.buys?.count ?? 0} buys`}
+          value={pnl ? `${buysEth.toFixed(3)} ETH` : '—'}
+          sub={pnl ? `${Number(pnl.buy_count).toLocaleString()} buys · avg ${Number(pnl.avg_buy_price_eth).toFixed(3)} ETH` : 'loading'}
           accent="blue"
         />
         <StatCard
           label="Total Received"
-          value={`${sellsEth.toFixed(3)} ETH`}
-          sub={`${profile?.sells?.count ?? 0} sells`}
+          value={pnl ? `${sellsEth.toFixed(3)} ETH` : '—'}
+          sub={pnl ? `${Number(pnl.sell_count).toLocaleString()} sells · avg ${Number(pnl.avg_sell_price_eth).toFixed(3)} ETH` : 'loading'}
           accent="purple"
         />
         <StatCard
-          label="Total Trades"
-          value={totalTrades > 0 ? totalTrades.toLocaleString() : '—'}
-          sub="transactions"
+          label="Collections Traded"
+          value={pnl ? Number(pnl.unique_collections).toLocaleString() : '—'}
+          sub={pnl?.most_traded_coll
+            ? `most: ${pnl.most_traded_coll.slice(0, 8)}…`
+            : `${totalTrades > 0 ? totalTrades.toLocaleString() : '—'} trades`
+          }
         />
       </div>
 
