@@ -42,7 +42,7 @@ logger = logging.getLogger("indexer.listener")
 ETH_PRICE_URL         = "https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd"
 GET_LOGS_TIMEOUT      = 30.0   # secondes max pour un batch eth_getLogs
 POLL_INTERVAL         = 2.0    # secondes entre chaque poll live (Abstract ~2s/bloc)
-CATCHUP_BATCH_SIZE    = 2_000  # blocs par requête eth_getLogs en catchup
+CATCHUP_BATCH_SIZE    = 500    # blocs par requête eth_getLogs en catchup
 LOG_PROGRESS_EVERY    = 20     # log tous les N batches (~40 000 blocs)
 
 # Configuration via env
