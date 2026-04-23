@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useQuery }                    from '@tanstack/react-query'
 import { useAlphaFeed }                from '../../lib/hooks/useRealtime'
+import { apiFetch } from '../../lib/api'
 import type { AlphaEvent }             from '../../lib/types'
 
 const API = process.env.NEXT_PUBLIC_API_URL
@@ -52,7 +53,7 @@ export function AlphaFeed() {
   // Snapshot initial via REST (chargement rapide avant que le WS ne démarre)
   const { data: snapshot } = useQuery<{ events: AlphaEvent[] }>({
     queryKey:        ['alpha-feed'],
-    queryFn:         () => fetch(`${API}/api/v1/alpha-feed`).then(r => r.json()),
+    queryFn:         () => apiFetch<{ events: AlphaEvent[] }>(`${API}/api/v1/alpha-feed`),
     refetchInterval: 15_000,  // même fréquence que le cron backend
     staleTime:       10_000,
   })

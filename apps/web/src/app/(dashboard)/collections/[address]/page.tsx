@@ -9,6 +9,7 @@ import { StatCard }         from '../../../../components/ui/StatCard'
 import { DataTable }        from '../../../../components/ui/DataTable'
 import { NFTImage }         from '../../../../components/ui/NFTImage'
 import { useLiveSales }     from '../../../../lib/hooks/useRealtime'
+import { apiFetch }         from '../../../../lib/api'
 
 const API = process.env.NEXT_PUBLIC_API_URL
 
@@ -22,14 +23,14 @@ export default function CollectionPage({ params }: Params) {
 
   const { data: stats, isLoading } = useQuery({
     queryKey: ['collection', addr],
-    queryFn:  () => fetch(`${API}/api/v1/collections/${addr}`).then(r => r.json()),
+    queryFn:  () => apiFetch(`${API}/api/v1/collections/${addr}`),
     staleTime: 30_000,
     refetchInterval: 60_000,
   })
 
   const { data: sales } = useQuery({
     queryKey: ['collection-sales', addr],
-    queryFn:  () => fetch(`${API}/api/v1/collections/${addr}/sales?limit=100`).then(r => r.json()),
+    queryFn:  () => apiFetch(`${API}/api/v1/collections/${addr}/sales?limit=100`),
     staleTime: 10_000,
   })
 

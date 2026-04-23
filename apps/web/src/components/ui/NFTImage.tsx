@@ -1,6 +1,7 @@
 'use client'
 
 import { useQuery } from '@tanstack/react-query'
+import { apiFetch } from '../../lib/api'
 
 const API = process.env.NEXT_PUBLIC_API_URL
 
@@ -18,9 +19,7 @@ interface NFTImageProps {
 export function NFTImage({ collection, tokenId, size = 40, className = '' }: NFTImageProps) {
   const { data } = useQuery({
     queryKey:  ['nft-meta', collection, String(tokenId)],
-    queryFn:   () =>
-      fetch(`${API}/api/v1/collections/${collection}/token/${tokenId}/meta`)
-        .then(r => r.json()),
+    queryFn:   () => apiFetch(`${API}/api/v1/collections/${collection}/token/${tokenId}/meta`),
     staleTime: 24 * 60 * 60_000,
     gcTime:    24 * 60 * 60_000,
     retry:     false,

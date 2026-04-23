@@ -6,6 +6,7 @@
  */
 
 import { useQuery } from '@tanstack/react-query'
+import { apiFetch } from '../api'
 import type { CollectionRow } from '../types'
 
 const API = process.env.NEXT_PUBLIC_API_URL
@@ -18,7 +19,7 @@ function shortAddr(addr: string): string {
 export function useCollectionNames() {
   const { data } = useQuery<CollectionRow[]>({
     queryKey:  ['collection-names-map'],
-    queryFn:   () => fetch(`${API}/api/v1/collections?limit=200`).then(r => r.json()),
+    queryFn:   () => apiFetch<CollectionRow[]>(`${API}/api/v1/collections?limit=200`),
     staleTime: 5 * 60_000,   // 5 min — les noms changent rarement
     gcTime:    30 * 60_000,
   })

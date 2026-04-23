@@ -4,6 +4,7 @@ import { useEffect, useRef } from 'react'
 import { createChart, ColorType, CrosshairMode } from 'lightweight-charts'
 import { useQuery } from '@tanstack/react-query'
 import { useLiveFloor } from '../../lib/hooks/useRealtime'
+import { apiFetch } from '../../lib/api'
 
 const API = process.env.NEXT_PUBLIC_API_URL
 
@@ -23,8 +24,7 @@ export function FloorChart({ collection, period = '7d', height = 240 }: Props) {
   const { data } = useQuery({
     queryKey: ['floor-history', collection, period],
     queryFn: () =>
-      fetch(`${API}/api/v1/collections/${collection}/floor?period=${period}`)
-        .then(r => r.json()),
+      apiFetch(`${API}/api/v1/collections/${collection}/floor?period=${period}`),
     staleTime: 60_000,
   })
 

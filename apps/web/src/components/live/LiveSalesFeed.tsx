@@ -88,11 +88,13 @@ function SaleRow({ sale, isNew }: { sale: SaleData; isNew: boolean }) {
       {/* Right : prix */}
       <div className="flex flex-col items-end shrink-0">
         <span className="text-sm font-semibold text-white">
-          {sale.priceEth.toFixed(3)} ETH
+          {Number(sale.priceEth ?? 0).toFixed(3)} ETH
         </span>
-        <span className="text-xs text-white/40">
-          ${sale.priceUsd.toLocaleString('en', { maximumFractionDigits: 0 })}
-        </span>
+        {(sale.priceUsd ?? 0) > 0 && (
+          <span className="text-xs text-white/40">
+            ${Number(sale.priceUsd).toLocaleString('en', { maximumFractionDigits: 0 })}
+          </span>
+        )}
       </div>
     </div>
   )

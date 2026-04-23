@@ -4,6 +4,7 @@
  */
 
 import { useQuery } from '@tanstack/react-query'
+import { apiFetch } from '../../../lib/api'
 import type { GraphNode, GraphLink, FlowNode, FlowLink, ClusterNode } from '../types'
 
 const API = process.env.NEXT_PUBLIC_API_URL
@@ -14,10 +15,7 @@ export function useTransactionGraph(address: string, depth = 2) {
   return useQuery({
     queryKey: ['graph', 'transactions', address, depth],
     queryFn:  async () => {
-      const res = await fetch(
-        `${API}/api/v1/wallets/${address}/graph?depth=${depth}&limit=200`
-      )
-      const raw = await res.json()
+      const raw = await apiFetch(`${API}/api/v1/wallets/${address}/graph?depth=${depth}&limit=200`)
       return transformToGraph(raw)
     },
     staleTime:      60_000,
@@ -60,8 +58,7 @@ export function useMoneyFlow(collection: string, period = '7d') {
   return useQuery({
     queryKey: ['graph', 'flow', collection, period],
     queryFn:  async () => {
-      const res  = await fetch(`${API}/api/v1/collections/${collection}/flow?period=${period}`)
-      const raw  = await res.json()
+      const raw = await apiFetch(`${API}/api/v1/collections/${collection}/flow?period=${period}`)
       return transformToSankey(raw)
     },
     staleTime: 120_000,
@@ -88,8 +85,7 @@ export function useWalletClusters(collection?: string) {
       const url = collection
         ? `${API}/api/v1/collections/${collection}/holders/clusters`
         : `${API}/api/v1/wallets/clusters?limit=300`
-      const res = await fetch(url)
-      const raw = await res.json()
+      const raw = await apiFetch(url)
       return transformToClusters(raw)
     },
     staleTime: 300_000,

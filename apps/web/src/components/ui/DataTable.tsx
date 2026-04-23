@@ -41,7 +41,7 @@ export function DataTable<T>({ columns, data, keyFn, loading, emptyText = 'No da
                 onClick={() => col.sortable && toggleSort(col.key)}
                 className={`
                   px-4 py-3 text-xs text-[var(--text-muted)] font-medium uppercase tracking-wider
-                  text-${col.align ?? 'left'}
+                  ${col.align === 'right' ? 'text-right' : col.align === 'center' ? 'text-center' : 'text-left'}
                   ${col.sortable ? 'cursor-pointer hover:text-white select-none' : ''}
                 `}
               >
@@ -87,7 +87,7 @@ export function DataTable<T>({ columns, data, keyFn, loading, emptyText = 'No da
                 {columns.map(col => (
                   <td
                     key={col.key}
-                    className={`px-4 py-3 text-${col.align ?? 'left'} text-[var(--text)]`}
+                    className={`px-4 py-3 ${col.align === 'right' ? 'text-right' : col.align === 'center' ? 'text-center' : 'text-left'} text-[var(--text)]`}
                   >
                     {col.render(row)}
                   </td>

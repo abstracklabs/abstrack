@@ -12,6 +12,7 @@
 import { useRef, useEffect, useState } from 'react'
 import * as d3 from 'd3'
 import { useQuery } from '@tanstack/react-query'
+import { apiFetch } from '../../lib/api'
 
 const API = process.env.NEXT_PUBLIC_API_URL
 
@@ -40,10 +41,10 @@ export function HeatmapCalendar({ collection, metric = 'volume', height = 130 }:
   const { data: days } = useQuery<DayData[]>({
     queryKey: ['heatmap', collection, metric],
     queryFn: () =>
-      fetch(collection
+      apiFetch<DayData[]>(collection
         ? `${API}/api/v1/collections/${collection}/activity?period=365d&granularity=day`
         : `${API}/api/v1/analytics/activity?period=365d&granularity=day`
-      ).then(r => r.json()),
+      ),
     staleTime: 3_600_000,
     placeholderData: generateMockDays(),
   })

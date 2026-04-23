@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { useQuery }  from '@tanstack/react-query'
 import { useCollectionStore } from '../../store/collections'
 import { socket } from '../socket'
+import { apiFetch } from '../api'
 import type { CollectionStats, NFTSale } from '../types'
 
 const API = process.env.NEXT_PUBLIC_API_URL
@@ -11,7 +12,7 @@ export function useCollectionStats(address: string) {
 
   const query = useQuery<CollectionStats>({
     queryKey: ['collection', address, 'stats'],
-    queryFn:  () => fetch(`${API}/api/v1/collections/${address}`).then(r => r.json()),
+    queryFn:  () => apiFetch<CollectionStats>(`${API}/api/v1/collections/${address}`),
     staleTime: 30_000,
     refetchInterval: 60_000,
   })
@@ -32,9 +33,7 @@ export function useCollectionStats(address: string) {
 export function useFloorHistory(address: string, period = '7d') {
   return useQuery({
     queryKey: ['collection', address, 'floor', period],
-    queryFn:  () =>
-      fetch(`${API}/api/v1/collections/${address}/floor?period=${period}`)
-        .then(r => r.json()),
+    queryFn:  () => apiFetch(`${API}/api/v1/collections/${address}/floor?period=${period}`),
     staleTime: 60_000,
   })
 }

@@ -19,6 +19,7 @@
 import { useRef, useEffect, useState } from 'react'
 import * as d3 from 'd3'
 import { useQuery } from '@tanstack/react-query'
+import { apiFetch } from '../../lib/api'
 
 const API = process.env.NEXT_PUBLIC_API_URL
 
@@ -76,7 +77,7 @@ function HolderTreemap({ collection, height }: { collection: string; height: num
 
   const { data: holders } = useQuery<Holder[]>({
     queryKey: ['holders', collection],
-    queryFn:  () => fetch(`${API}/api/v1/collections/${collection}/holders?limit=100`).then(r => r.json()),
+    queryFn:  () => apiFetch<Holder[]>(`${API}/api/v1/collections/${collection}/holders?limit=100`),
     staleTime: 300_000,
     placeholderData: generateMockHolders(),
   })
@@ -182,7 +183,7 @@ function LorenzCurve({ collection, height }: { collection: string; height: numbe
 
   const { data: holders } = useQuery<Holder[]>({
     queryKey: ['holders', collection],
-    queryFn:  () => fetch(`${API}/api/v1/collections/${collection}/holders?limit=1000`).then(r => r.json()),
+    queryFn:  () => apiFetch<Holder[]>(`${API}/api/v1/collections/${collection}/holders?limit=1000`),
     staleTime: 300_000,
     placeholderData: generateMockHolders(200),
   })

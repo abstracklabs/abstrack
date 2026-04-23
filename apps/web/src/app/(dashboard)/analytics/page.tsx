@@ -3,6 +3,7 @@
 import { useQuery }   from '@tanstack/react-query'
 import Link           from 'next/link'
 import { StatCard }   from '../../../components/ui/StatCard'
+import { apiFetch }  from '../../../lib/api'
 import type { CollectionRow, MarketOverview } from '../../../lib/types'
 
 const API = process.env.NEXT_PUBLIC_API_URL
@@ -21,20 +22,20 @@ function fmtEth(n: number | undefined, decimals = 1): string {
 export default function AnalyticsPage() {
   const { data: overview, isLoading: overviewLoading } = useQuery<MarketOverview>({
     queryKey:        ['analytics-market-overview'],
-    queryFn:         () => fetch(`${API}/api/v1/analytics/market-overview`).then(r => r.json()),
+    queryFn:         () => apiFetch<MarketOverview>(`${API}/api/v1/analytics/market-overview`),
     refetchInterval: 60_000,
     staleTime:       60_000,
   })
 
   const { data: topVolume, isLoading: volumeLoading } = useQuery<CollectionRow[]>({
     queryKey:  ['analytics-top-volume'],
-    queryFn:   () => fetch(`${API}/api/v1/collections?sort=volume_24h&limit=10`).then(r => r.json()),
+    queryFn:   () => apiFetch<CollectionRow[]>(`${API}/api/v1/collections?sort=volume_24h&limit=10`),
     staleTime: 60_000,
   })
 
   const { data: topSales, isLoading: salesLoading } = useQuery<CollectionRow[]>({
     queryKey:  ['analytics-top-sales'],
-    queryFn:   () => fetch(`${API}/api/v1/collections?sort=sales&limit=10`).then(r => r.json()),
+    queryFn:   () => apiFetch<CollectionRow[]>(`${API}/api/v1/collections?sort=sales&limit=10`),
     staleTime: 60_000,
   })
 

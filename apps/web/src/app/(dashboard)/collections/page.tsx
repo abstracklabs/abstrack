@@ -2,6 +2,7 @@
 
 import { useQuery } from '@tanstack/react-query'
 import Link from 'next/link'
+import { apiFetch } from '../../../lib/api'
 import type { CollectionRow } from '../../../lib/types'
 
 const API = process.env.NEXT_PUBLIC_API_URL
@@ -9,7 +10,7 @@ const API = process.env.NEXT_PUBLIC_API_URL
 export default function CollectionsPage() {
   const { data: collections = [], isLoading } = useQuery<CollectionRow[]>({
     queryKey:        ['collections-all'],
-    queryFn:         () => fetch(`${API}/api/v1/collections?sort=volume_24h&limit=100`).then(r => r.json()),
+    queryFn:         () => apiFetch<CollectionRow[]>(`${API}/api/v1/collections?sort=volume_24h&limit=100`),
     refetchInterval: 30_000,
     staleTime:       30_000,
   })

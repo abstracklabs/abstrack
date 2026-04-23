@@ -7,6 +7,7 @@ import { StatCard }        from '../../../../components/ui/StatCard'
 import { DataTable }       from '../../../../components/ui/DataTable'
 import { WalletActivity }  from '../../../../components/live/WalletActivity'
 import { useCollectionNames } from '../../../../lib/hooks/useCollectionNames'
+import { apiFetch } from '../../../../lib/api'
 import type { WalletPnl } from '../../../../lib/types'
 
 const API = process.env.NEXT_PUBLIC_API_URL
@@ -19,28 +20,28 @@ export default function WalletPage({ params }: Params) {
   // Profile stats : labels, transfers count
   const { data: profile } = useQuery({
     queryKey: ['wallet', addr],
-    queryFn:  () => fetch(`${API}/api/v1/wallets/${addr}`).then(r => r.json()),
+    queryFn:  () => apiFetch(`${API}/api/v1/wallets/${addr}`),
     staleTime: 60_000,
   })
 
   // Realized PnL — single-scan SQL function (wallet_realized_pnl)
   const { data: pnl } = useQuery<WalletPnl>({
     queryKey: ['wallet-pnl', addr],
-    queryFn:  () => fetch(`${API}/api/v1/wallets/${addr}/pnl`).then(r => r.json()),
+    queryFn:  () => apiFetch<WalletPnl>(`${API}/api/v1/wallets/${addr}/pnl`),
     staleTime: 60_000,
   })
 
   // NFT positions actuelles (delta transfers)
   const { data: portfolio } = useQuery({
     queryKey: ['wallet-portfolio', addr],
-    queryFn:  () => fetch(`${API}/api/v1/wallets/${addr}/portfolio`).then(r => r.json()),
+    queryFn:  () => apiFetch(`${API}/api/v1/wallets/${addr}/portfolio`),
     staleTime: 60_000,
   })
 
   // Historique des trades (sales)
   const { data: activity } = useQuery({
     queryKey: ['wallet-activity', addr],
-    queryFn:  () => fetch(`${API}/api/v1/wallets/${addr}/activity?limit=50`).then(r => r.json()),
+    queryFn:  () => apiFetch(`${API}/api/v1/wallets/${addr}/activity?limit=50`),
     staleTime: 30_000,
   })
 

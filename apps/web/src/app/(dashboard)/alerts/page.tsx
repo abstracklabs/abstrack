@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAlertsStore } from '../../../store/alerts'
 import { useCollectionNames } from '../../../lib/hooks/useCollectionNames'
+import { apiFetch } from '../../../lib/api'
 
 const API = process.env.NEXT_PUBLIC_API_URL
 
@@ -90,7 +91,7 @@ export default function AlertsPage() {
   const qc = useQueryClient()
   const { data: alerts = [], isLoading } = useQuery<UserAlert[]>({
     queryKey: ['alerts'],
-    queryFn:  () => fetch(`${API}/api/v1/alerts`, { credentials: 'include' }).then(r => r.json()),
+    queryFn:  () => apiFetch<UserAlert[]>(`${API}/api/v1/alerts`),
   })
 
   const deleteMutation = useMutation({

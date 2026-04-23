@@ -5,6 +5,7 @@ import { useRouter }     from 'next/navigation'
 import { StatCard }      from '../../components/ui/StatCard'
 import { LiveSalesFeed } from '../../components/live/LiveSalesFeed'
 import { AlphaFeed }     from '../../components/live/AlphaFeed'
+import { apiFetch } from '../../lib/api'
 import type { CollectionRow, GlobalStats } from '../../lib/types'
 
 const API = process.env.NEXT_PUBLIC_API_URL
@@ -15,14 +16,14 @@ export function DashboardClient() {
   // Stats globales depuis /analytics/global (source of truth)
   const { data: global, isLoading: globalLoading } = useQuery<GlobalStats>({
     queryKey:        ['analytics-global'],
-    queryFn:         () => fetch(`${API}/api/v1/analytics/global`).then(r => r.json()),
+    queryFn:         () => apiFetch<GlobalStats>(`${API}/api/v1/analytics/global`),
     refetchInterval: 30_000,
   })
 
   // Top collections
   const { data: collections, isLoading: collectionsLoading } = useQuery<CollectionRow[]>({
     queryKey:        ['top-collections'],
-    queryFn:         () => fetch(`${API}/api/v1/collections?sort=volume_24h&limit=20`).then(r => r.json()),
+    queryFn:         () => apiFetch<CollectionRow[]>(`${API}/api/v1/collections?sort=volume_24h&limit=20`),
     refetchInterval: 30_000,
   })
 
