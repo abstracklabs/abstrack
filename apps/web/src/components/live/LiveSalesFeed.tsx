@@ -101,6 +101,7 @@ function SaleRow({ sale, isNew }: { sale: SaleData; isNew: boolean }) {
 }
 
 function WalletAddress({ address }: { address: string }) {
+  if (!address || address.length < 10) return <span className="text-[var(--text-muted)]">—</span>
   const short = `${address.slice(0, 6)}...${address.slice(-4)}`
   return (
     <a

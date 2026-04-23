@@ -127,7 +127,7 @@ export function MoneyFlowSankey({ collection, period = '7d', height = 480 }: Pro
       .attr('font-family', 'JetBrains Mono, monospace')
       .attr('fill', 'rgba(230,237,243,0.8)')
       .text(n => {
-        const name  = (n as any).name ?? n.id
+        const name  = String((n as any).name ?? (n as any).id ?? '')
         const value = (n as any).value?.toFixed(1) ?? ''
         return `${name.length > 16 ? name.slice(0, 14) + '…' : name}  ${value}ETH`
       })

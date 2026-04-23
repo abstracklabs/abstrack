@@ -70,10 +70,10 @@ function ActivityRow({ event, isNew }: { event: WalletActivityData; isNew: boole
       </div>
 
       {/* Valeur */}
-      {event.valueEth > 0 && (
+      {(event.valueEth ?? 0) > 0 && (
         <div className="text-right shrink-0">
-          <p className="text-sm text-white">{event.valueEth.toFixed(3)} ETH</p>
-          <p className="text-xs text-white/40">${event.valueUsd.toFixed(0)}</p>
+          <p className="text-sm text-white">{Number(event.valueEth ?? 0).toFixed(3)} ETH</p>
+          <p className="text-xs text-white/40">${Number(event.valueUsd ?? 0).toFixed(0)}</p>
         </div>
       )}
     </div>

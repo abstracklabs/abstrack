@@ -160,11 +160,11 @@ function EventDetail({ event, cfg }: { event: AlphaEvent; cfg: typeof EVENT_CFG[
         </span>
         <div className="flex items-baseline gap-1">
           <span className={`text-sm font-bold tabular-nums ${cfg.color}`}>
-            {Number(d.price_eth).toFixed(2)} ETH
+            {Number(d.price_eth ?? 0).toFixed(2)} ETH
           </span>
           {d.price_usd != null && (
             <span className="text-[10px] text-[var(--text-muted)]">
-              ${Number(d.price_usd).toLocaleString('en', { maximumFractionDigits: 0 })}
+              ${Number(d.price_usd ?? 0).toLocaleString('en', { maximumFractionDigits: 0 })}
             </span>
           )}
         </div>
@@ -176,11 +176,11 @@ function EventDetail({ event, cfg }: { event: AlphaEvent; cfg: typeof EVENT_CFG[
     return (
       <div className="flex items-center justify-between">
         <span className="text-[10px] text-[var(--text-muted)]">
-          1h avg ×{Number(d.ratio).toFixed(1)}
+          1h avg ×{Number(d.ratio ?? 0).toFixed(1)}
         </span>
         <div className="flex items-baseline gap-1">
           <span className={`text-sm font-bold tabular-nums ${cfg.color}`}>
-            {Number(d.volume_1h_eth).toFixed(2)} ETH
+            {Number(d.volume_1h_eth ?? 0).toFixed(2)} ETH
           </span>
           <span className="text-[10px] text-[var(--text-muted)]">/ 1h</span>
         </div>
@@ -192,10 +192,10 @@ function EventDetail({ event, cfg }: { event: AlphaEvent; cfg: typeof EVENT_CFG[
     return (
       <div className="flex items-center justify-between">
         <span className="text-[10px] text-[var(--text-muted)]">
-          {Number(d.sales_10min)} sales / 10min
+          {Number(d.sales_10min ?? 0)} sales / 10min
         </span>
         <span className={`text-sm font-bold tabular-nums ${cfg.color}`}>
-          {Number(d.volume_10min_eth).toFixed(2)} ETH
+          {Number(d.volume_10min_eth ?? 0).toFixed(2)} ETH
         </span>
       </div>
     )

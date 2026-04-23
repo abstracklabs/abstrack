@@ -40,7 +40,7 @@ function WhaleToasts() {
           key={`whale-${alert.ts}-${i}`}
           variant="whale"
           title={`${alert.tier.replace('_', ' ')} Alert`}
-          body={`${truncate(alert.wallet)} bought ${alert.amountUsd.toLocaleString('en', { maximumFractionDigits: 0 })}$`}
+          body={`${truncate(alert.wallet)} bought ${(alert.amountUsd ?? 0).toLocaleString('en', { maximumFractionDigits: 0 })}$`}
         />
       ))}
     </>
@@ -182,6 +182,7 @@ export function ConnectionStatus() {
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function truncate(address: string): string {
+  if (!address || address.length < 10) return address ?? '?'
   return `${address.slice(0, 6)}...${address.slice(-4)}`
 }
 
