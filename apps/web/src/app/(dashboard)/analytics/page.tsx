@@ -69,7 +69,7 @@ export default function AnalyticsPage() {
           />
           <StatCard
             label="Sales 24h"
-            value={overview ? overview.sales_24h.toLocaleString() : '—'}
+            value={overview ? (overview.sales_24h ?? 0).toLocaleString() : '—'}
             sub={salesGrowth ? `${salesGrowth} vs yesterday` : 'transactions'}
             accent="purple"
             loading={overviewLoading}
@@ -83,7 +83,7 @@ export default function AnalyticsPage() {
           />
           <StatCard
             label="Active Collections"
-            value={overview ? overview.collections_active_24h.toLocaleString() : '—'}
+            value={overview ? (overview.collections_active_24h ?? 0).toLocaleString() : '—'}
             sub="with sales today"
             accent="orange"
             loading={overviewLoading}
@@ -274,7 +274,7 @@ function LeaderboardRow({
         <span className="font-mono text-sm text-white tabular-nums">
           {valueKey === 'volume'
             ? `${Number(row.volume_24h_eth).toFixed(2)} ETH`
-            : row.sales_count_24h.toLocaleString()
+            : (row.sales_count_24h ?? 0).toLocaleString()
           }
         </span>
       </div>

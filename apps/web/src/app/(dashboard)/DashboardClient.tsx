@@ -47,14 +47,14 @@ export function DashboardClient() {
         />
         <StatCard
           label="Sales 24h"
-          value={global ? global.sales_24h.toLocaleString() : '—'}
+          value={global ? (global.sales_24h ?? 0).toLocaleString() : '—'}
           sub="transactions"
           accent="purple"
           loading={globalLoading}
         />
         <StatCard
           label="Collections"
-          value={global ? global.collections_active.toLocaleString() : '—'}
+          value={global ? (global.collections_active ?? 0).toLocaleString() : '—'}
           sub="with activity"
           accent="green"
           loading={globalLoading}
@@ -178,7 +178,7 @@ function CollectionRow({ row, rank, onClick }: { row: CollectionRow; rank: numbe
 
       {/* Sales */}
       <span className="text-sm font-mono text-[var(--text-muted)] tabular-nums text-right">
-        {row.sales_count_24h.toLocaleString()}
+        {(row.sales_count_24h ?? 0).toLocaleString()}
       </span>
     </button>
   )
