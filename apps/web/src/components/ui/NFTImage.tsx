@@ -17,9 +17,9 @@ interface NFTImageProps {
  * Résout tokenURI → metadata → image via le backend (cache 24h).
  */
 export function NFTImage({ collection, tokenId, size = 40, className = '' }: NFTImageProps) {
-  const { data } = useQuery({
+  const { data } = useQuery<Record<string, any>>({
     queryKey:  ['nft-meta', collection, String(tokenId)],
-    queryFn:   () => apiFetch(`${API}/api/v1/collections/${collection}/token/${tokenId}/meta`),
+    queryFn:   () => apiFetch<Record<string, any>>(`${API}/api/v1/collections/${collection}/token/${tokenId}/meta`),
     staleTime: 24 * 60 * 60_000,
     gcTime:    24 * 60 * 60_000,
     retry:     false,

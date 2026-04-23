@@ -21,10 +21,10 @@ export function FloorChart({ collection, period = '7d', height = 240 }: Props) {
   const liveFloor    = useLiveFloor(collection)
 
   // Fetch historique
-  const { data } = useQuery({
+  const { data } = useQuery<any[]>({
     queryKey: ['floor-history', collection, period],
     queryFn: () =>
-      apiFetch(`${API}/api/v1/collections/${collection}/floor?period=${period}`),
+      apiFetch<any[]>(`${API}/api/v1/collections/${collection}/floor?period=${period}`),
     staleTime: 60_000,
   })
 

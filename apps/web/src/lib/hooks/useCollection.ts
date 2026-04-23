@@ -31,9 +31,9 @@ export function useCollectionStats(address: string) {
 }
 
 export function useFloorHistory(address: string, period = '7d') {
-  return useQuery({
+  return useQuery<any[]>({
     queryKey: ['collection', address, 'floor', period],
-    queryFn:  () => apiFetch(`${API}/api/v1/collections/${address}/floor?period=${period}`),
+    queryFn:  () => apiFetch<any[]>(`${API}/api/v1/collections/${address}/floor?period=${period}`),
     staleTime: 60_000,
   })
 }

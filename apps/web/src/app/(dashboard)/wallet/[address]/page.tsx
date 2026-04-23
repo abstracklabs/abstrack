@@ -18,9 +18,9 @@ export default function WalletPage({ params }: Params) {
   const { address: addr } = use(params)
 
   // Profile stats : labels, transfers count
-  const { data: profile } = useQuery({
+  const { data: profile } = useQuery<Record<string, any>>({
     queryKey: ['wallet', addr],
-    queryFn:  () => apiFetch(`${API}/api/v1/wallets/${addr}`),
+    queryFn:  () => apiFetch<Record<string, any>>(`${API}/api/v1/wallets/${addr}`),
     staleTime: 60_000,
   })
 
@@ -32,16 +32,16 @@ export default function WalletPage({ params }: Params) {
   })
 
   // NFT positions actuelles (delta transfers)
-  const { data: portfolio } = useQuery({
+  const { data: portfolio } = useQuery<any[]>({
     queryKey: ['wallet-portfolio', addr],
-    queryFn:  () => apiFetch(`${API}/api/v1/wallets/${addr}/portfolio`),
+    queryFn:  () => apiFetch<any[]>(`${API}/api/v1/wallets/${addr}/portfolio`),
     staleTime: 60_000,
   })
 
   // Historique des trades (sales)
-  const { data: activity } = useQuery({
+  const { data: activity } = useQuery<any[]>({
     queryKey: ['wallet-activity', addr],
-    queryFn:  () => apiFetch(`${API}/api/v1/wallets/${addr}/activity?limit=50`),
+    queryFn:  () => apiFetch<any[]>(`${API}/api/v1/wallets/${addr}/activity?limit=50`),
     staleTime: 30_000,
   })
 

@@ -21,16 +21,16 @@ export default function CollectionPage({ params }: Params) {
   const { address: addr } = use(params)
   const [period, setPeriod] = useState<Period>('7d')
 
-  const { data: stats, isLoading } = useQuery({
+  const { data: stats, isLoading } = useQuery<Record<string, any>>({
     queryKey: ['collection', addr],
-    queryFn:  () => apiFetch(`${API}/api/v1/collections/${addr}`),
+    queryFn:  () => apiFetch<Record<string, any>>(`${API}/api/v1/collections/${addr}`),
     staleTime: 30_000,
     refetchInterval: 60_000,
   })
 
-  const { data: sales } = useQuery({
+  const { data: sales } = useQuery<any[]>({
     queryKey: ['collection-sales', addr],
-    queryFn:  () => apiFetch(`${API}/api/v1/collections/${addr}/sales?limit=100`),
+    queryFn:  () => apiFetch<any[]>(`${API}/api/v1/collections/${addr}/sales?limit=100`),
     staleTime: 10_000,
   })
 
