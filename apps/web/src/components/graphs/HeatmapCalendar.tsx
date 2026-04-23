@@ -178,14 +178,15 @@ export function HeatmapCalendar({ collection, metric = 'volume', height = 130 }:
   )
 }
 
-// Placeholder data pendant le chargement
+// Placeholder data pendant le chargement — deterministic to avoid SSR/hydration mismatch
 function generateMockDays(): DayData[] {
   const days: DayData[] = []
   const now = new Date()
   for (let i = 365; i >= 0; i--) {
     const d = new Date(now)
     d.setDate(d.getDate() - i)
-    const rand = Math.random()
+    // Deterministic pseudo-random based on index (no Math.random — causes hydration mismatch)
+    const rand = ((i * 2654435761) % 1000) / 1000
     days.push({
       date:        d.toISOString().slice(0, 10),
       volume_eth:  rand > 0.3 ? rand * 50 : 0,

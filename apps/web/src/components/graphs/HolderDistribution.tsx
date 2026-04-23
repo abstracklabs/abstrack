@@ -304,15 +304,20 @@ function LorenzCurve({ collection, height }: { collection: string; height: numbe
 
 // ─── Mock data ────────────────────────────────────────────────────────────────
 
+// Deterministic mock — no Math.random() to avoid SSR/hydration mismatch
 function generateMockHolders(n = 100): Holder[] {
   const holders: Holder[] = []
   for (let i = 0; i < n; i++) {
+    // Deterministic pseudo-random values based on index
+    const r1 = ((i * 2654435761) % 1000) / 1000
+    const r2 = (((i + 137) * 1664525) % 1000) / 1000
     // Distribution Pareto (80/20)
-    const tokens = Math.floor(Math.pow(Math.random(), 3) * 500) + 1
+    const tokens = Math.floor(Math.pow(r1, 3) * 500) + 1
+    const addrHex = (i * 0xdeadbeef).toString(16).padStart(40, '0').slice(0, 40)
     holders.push({
-      address: `0x${Math.random().toString(16).slice(2, 42)}`,
+      address: `0x${addrHex}`,
       tokens,
-      pct: 0,   // calculé après
+      pct: 0,
     })
   }
   const total = d3.sum(holders, h => h.tokens)
