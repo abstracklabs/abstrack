@@ -8,9 +8,11 @@ Modes de catchup :
   - FULL     : INDEXER_START_BLOCK + INDEXER_FORCE_REINDEX=true → réindexe depuis le début
 
 Variables d'environnement :
-  INDEXER_START_BLOCK    (int,  défaut 0)     — bloc minimum de départ
-  INDEXER_FORCE_REINDEX  (bool, défaut false) — réinitialise le checkpoint au 1er démarrage
-  CATCHUP_BATCH_SLEEP_MS (int,  défaut 100)   — pause entre batches (throttle RPC)
+  INDEXER_START_BLOCK      (int,  défaut 0)     — bloc minimum de départ
+  INDEXER_FORCE_REINDEX    (bool, défaut false) — réinitialise le checkpoint au 1er démarrage
+  CATCHUP_BATCH_SLEEP_MS   (int,  défaut 100)   — pause entre batches (throttle RPC)
+  CATCHUP_SKIP_TRANSFERS   (bool, défaut true)  — ne stocke pas les transfers pendant le catchup
+                                                   (économise ~99% du stockage DB)
 
 Corrections critiques :
   - FORCE_REINDEX persisté en DB → résiste aux redémarrages container mid-catchup
@@ -34,7 +36,7 @@ from web3 import AsyncWeb3
 from web3.providers import AsyncHTTPProvider, WebSocketProvider
 
 from core.integrity import GapDetector
-from decoders.nft import decode_nft_log, TRACKED_TOPICS
+from decoders.nft import decode_nft_log, TRACKED_TOPICS, SEAPORT_ORDER
 from jobs.price_history import ensure_eth_price_history
 from storage.db import Database
 
@@ -49,8 +51,13 @@ CATCHUP_LAG_TARGET = 500     # blocs de tolérance avant de passer en live
 # Configuration via env
 START_BLOCK        = int(os.environ.get("INDEXER_START_BLOCK", "0"))
 FORCE_REINDEX      = os.environ.get("INDEXER_FORCE_REINDEX", "false").lower() in ("1", "true", "yes")
-CATCHUP_BATCH_SIZE = int(os.environ.get("CATCHUP_BATCH_SIZE", "500"))
-BATCH_SLEEP_S      = float(os.environ.get("CATCHUP_BATCH_SLEEP_MS", "100")) / 1000.0
+CATCHUP_BATCH_SIZE       = int(os.environ.get("CATCHUP_BATCH_SIZE", "500"))
+BATCH_SLEEP_S            = float(os.environ.get("CATCHUP_BATCH_SLEEP_MS", "100")) / 1000.0
+CATCHUP_SKIP_TRANSFERS   = os.environ.get("CATCHUP_SKIP_TRANSFERS", "true").lower() in ("1", "true", "yes")
+
+# Quand on saute les transfers, on ne fetch que les ventes Seaport — pas les ERC721/1155 transfers
+# → 0 logs retournés sur les zones sans Seaport (ex : blocs 0-600k) → 100x plus rapide
+CATCHUP_TOPICS = [SEAPORT_ORDER] if CATCHUP_SKIP_TRANSFERS else list(TRACKED_TOPICS)
 
 # Clé de session dans indexer_state
 _REINDEX_SESSION_KEY = "reindex_session"
@@ -259,7 +266,7 @@ class LiveListener:
                 w3.eth.get_logs({
                     "fromBlock": from_block,
                     "toBlock":   to_block,
-                    "topics":    [list(TRACKED_TOPICS)],
+                    "topics":    [CATCHUP_TOPICS],
                 }),
                 timeout=GET_LOGS_TIMEOUT,
             )
@@ -318,7 +325,10 @@ class LiveListener:
                 asyncio.create_task(self._resolve_collection_meta(w3, addr))
 
         # ── Bulk insert transfers et sales (1-2 appels DB au lieu de N) ──────────
-        if pending_transfers:
+        # CATCHUP_SKIP_TRANSFERS : évite de remplir la DB avec des millions de mints/transfers
+        # historiques qui ne servent pas aux analytics de ventes.
+        # Les collections sont quand même découvertes et upsertées ci-dessus.
+        if pending_transfers and not CATCHUP_SKIP_TRANSFERS:
             await self.db.bulk_insert_transfers(pending_transfers)
         if pending_sales:
             await self.db.bulk_insert_sales(pending_sales)
@@ -346,12 +356,18 @@ class LiveListener:
             await self.db.save_checkpoint(block_num)
             return
 
+        sale_collections: set[str] = set()
         if raw_logs:
             block_ts = await self._get_block_timestamp(w3, block_num)
             eth_usd  = await self._get_eth_price()
             for log in raw_logs:
-                await self._handle_log(dict(log), block_num, block_ts, eth_usd, w3,
-                                       historical=False)
+                colls = await self._handle_log(dict(log), block_num, block_ts, eth_usd, w3,
+                                               historical=False)
+                sale_collections.update(colls)
+
+        # Refresh stats une seule fois par collection par bloc (pas par vente)
+        for addr in sale_collections:
+            await self.db._refresh_stats(addr)
 
         await self.db.save_checkpoint(block_num)
         await self.db.mark_range_processed(block_num, block_num)
@@ -380,10 +396,13 @@ class LiveListener:
 
     async def _handle_log(self, log: dict, block_num: int, block_ts: datetime,
                           eth_usd: float, w3_ref: AsyncWeb3 = None,
-                          historical: bool = False):
+                          historical: bool = False) -> set[str]:
+        """
+        Décode et insère un log. Retourne les adresses de collections où une vente a été insérée.
+        Les stats ne sont JAMAIS rafraîchies ici — c'est la responsabilité de l'appelant
+        (batch refresh une seule fois par bloc en fin de traitement).
+        """
         try:
-            # Prix ETH/USD : prix du moment pour les blocs live,
-            # prix historique depuis eth_price_history pour les blocs passés.
             if historical:
                 effective_eth_usd = await self._get_historical_eth_price(block_ts)
             else:
@@ -392,7 +411,9 @@ class LiveListener:
             results = decode_nft_log(log, block_num, block_ts, effective_eth_usd)
         except Exception as e:
             logger.warning(f"Decode error (block {block_num}, tx {log.get('transactionHash')}): {e!r}")
-            return
+            return set()
+
+        inserted_collections: set[str] = set()
 
         for result in results:
             try:
@@ -401,14 +422,14 @@ class LiveListener:
                     is_new = await self.db.upsert_collection(result["collection_addr"])
                     if is_new:
                         if historical:
-                            # En catchup : résolution en tâche de fond — ne bloque pas le batch
                             asyncio.create_task(
                                 self._resolve_collection_meta(w3_ref, result["collection_addr"])
                             )
                         else:
                             await self._resolve_collection_meta(w3_ref, result["collection_addr"])
-                    inserted = await self.db.insert_sale(result, skip_stats_refresh=historical)
+                    inserted = await self.db.insert_sale(result, skip_stats_refresh=True)
                     if inserted:
+                        inserted_collections.add(result["collection_addr"].lower())
                         logger.debug(f"Sale inserted: {result['tx_hash']} — {result['price_eth']:.3f} ETH")
                 elif kind == "transfer":
                     is_new = await self.db.upsert_collection(result["collection_addr"])
@@ -424,6 +445,8 @@ class LiveListener:
                 logger.error(
                     f"DB insert error (block {block_num}, tx {log.get('transactionHash')}): {e!r}"
                 )
+
+        return inserted_collections
 
     # ─── Prix ETH historique (depuis DB, avec cache) ──────────────────────────
 

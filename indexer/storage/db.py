@@ -116,12 +116,16 @@ class Database:
         logger.debug(f"Range marked: [{from_block}–{to_block}]")
 
     async def find_gaps(self, from_block: int, to_block: int) -> list[dict]:
-        async with self._pool.acquire() as conn:
-            rows = await conn.fetch(
-                "SELECT gap_from, gap_to, gap_size FROM find_indexer_gaps($1, $2)",
-                from_block, to_block,
-            )
-        return [dict(r) for r in rows]
+        try:
+            async with self._pool.acquire() as conn:
+                rows = await conn.fetch(
+                    "SELECT gap_from, gap_to, gap_size FROM find_indexer_gaps($1, $2)",
+                    from_block, to_block,
+                )
+            return [dict(r) for r in rows]
+        except Exception as e:
+            logger.warning(f"find_gaps failed [{from_block}-{to_block}]: {e!r} — returning []")
+            return []
 
     async def get_indexed_ranges(self) -> list[dict]:
         async with self._pool.acquire() as conn:

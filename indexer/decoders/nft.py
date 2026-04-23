@@ -274,13 +274,16 @@ def _decode_seaport_sale(
     """
     n_topics = len(topics)
 
-    # Validation stricte du nombre de topics
     if n_topics == 3:
-        seller = _topic_addr(topics[1])   # offerer = topics[1]
-        abi    = _ABI_WITH_HASH           # data commence par bytes32 orderHash
+        candidates = [
+            (_topic_addr(topics[1]), _ABI_WITH_HASH, "A"),
+            (_topic_addr(topics[1]), _ABI_NO_HASH,   "A-alt"),
+        ]
     elif n_topics == 4:
-        seller = _topic_addr(topics[2])   # offerer = topics[2] (topics[1] = orderHash)
-        abi    = _ABI_NO_HASH             # data commence directement par recipient
+        candidates = [
+            (_topic_addr(topics[2]), _ABI_NO_HASH,   "B"),
+            (_topic_addr(topics[2]), _ABI_WITH_HASH, "B-alt"),
+        ]
     else:
         logger.debug(
             f"Seaport log with unexpected topic count {n_topics} — "
@@ -288,15 +291,38 @@ def _decode_seaport_sale(
         )
         return []
 
+    raw = _log_data_bytes(log)
+    if not raw:
+        logger.warning(f"Seaport log has empty data — tx {log.get('transactionHash')}")
+        return []
+
+    # Essaie la variante primaire puis la variante de secours
+    seller = decoded = abi = variant = None
+    for s, a, v in candidates:
+        try:
+            decoded = abi_decode(a, raw)
+            seller, abi, variant = s, a, v
+            if v.endswith("-alt"):
+                logger.debug(
+                    f"Seaport fallback variant {v} succeeded — tx {log.get('transactionHash')}"
+                )
+            break
+        except Exception as exc:
+            if not v.endswith("-alt"):
+                logger.debug(
+                    f"Seaport primary variant {v} failed, trying fallback — "
+                    f"tx {log.get('transactionHash')}: {exc!r}"
+                )
+            else:
+                logger.warning(
+                    f"Seaport ABI decode failed (both variants) — "
+                    f"tx {log.get('transactionHash')}: {exc!r} "
+                    f"(data[:32]={log.get('data', '0x')[:66]})"
+                )
+                return []
+
     try:
-        raw = _log_data_bytes(log)
-        if not raw:
-            logger.warning(f"Seaport log has empty data — tx {log.get('transactionHash')}")
-            return []
-
-        decoded = abi_decode(abi, raw)
-
-        if n_topics == 3:
+        if abi == _ABI_WITH_HASH:
             _order_hash, recipient, offer, consideration = decoded
         else:
             recipient, offer, consideration = decoded
@@ -327,21 +353,19 @@ def _decode_seaport_sale(
 
     except Exception as exc:
         logger.warning(
-            f"Seaport ABI decode failed (variant {'A' if n_topics == 3 else 'B'}) "
-            f"— tx {log.get('transactionHash')}: {exc!r} "
-            f"(data[:32]={log.get('data', '0x')[:66]})"
+            f"Seaport decode error (variant {variant}) — "
+            f"tx {log.get('transactionHash')}: {exc!r}"
         )
         return []
 
     # Prix réparti équitablement entre tous les NFTs du bundle
     n_nfts = len(nft_items)
-    price_eth_each = (price_wei_total / n_nfts) / WEI
+    price_eth_each = (price_wei_total // n_nfts) / WEI  # division entière pour éviter les erreurs flottantes
 
     contract_addr = _normalize_addr(log.get("address", ""))
     marketplace   = _SEAPORT_CONTRACTS.get(contract_addr, "seaport")
     tx_hash       = _normalize_hash(log.get("transactionHash", ""))
     base_log_idx  = _parse_log_index(log)
-    variant       = 'A' if n_topics == 3 else 'B'
 
     if n_nfts > 1:
         logger.info(
