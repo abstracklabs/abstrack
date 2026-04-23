@@ -64,7 +64,7 @@ export function AlphaFeed() {
   // Merge : live en tête (plus frais), snapshot en fallback
   const events = liveEvents.length > 0
     ? liveEvents
-    : (snapshot?.events ?? [])
+    : (Array.isArray(snapshot?.events) ? snapshot!.events : [])
 
   return (
     <div className="flex flex-col h-full">

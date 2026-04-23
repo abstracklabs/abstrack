@@ -78,13 +78,15 @@ class AbstrackSocket {
     }
 
     this.ws.onclose = (event) => {
-      this.connectionState = 'reconnecting'
       this._clearTimers()
       if (event.code !== 1000) {
-        // Reconnexion automatique sauf fermeture propre
+        this.connectionState = 'reconnecting'
         this._scheduleReconnect()
+        console.debug(`[ws] closed (code=${event.code}), retry in ${this.reconnectDelay}ms`)
+      } else {
+        this.connectionState = 'idle'
+        console.debug(`[ws] closed cleanly (code=1000)`)
       }
-      console.debug(`[ws] closed (code=${event.code}), retry in ${this.reconnectDelay}ms`)
     }
 
     this.ws.onerror = () => {

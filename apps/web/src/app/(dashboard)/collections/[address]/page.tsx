@@ -38,7 +38,7 @@ export default function CollectionPage({ params }: Params) {
 
   // Fusionner live + historique — déduplication par tx_hash
   const seen = new Set<string>()
-  const allSales = [...liveSales, ...(sales ?? [])].filter(r => {
+  const allSales = [...liveSales, ...(Array.isArray(sales) ? sales : [])].filter(r => {
     const key = r.tx_hash ?? r.txHash
     if (!key || seen.has(key)) return false
     seen.add(key)
