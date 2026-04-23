@@ -27,7 +27,7 @@ function transformToGraph(raw: any): { nodes: GraphNode[]; links: GraphLink[] } 
   const nodesMap = new Map<string, GraphNode>()
   const links: GraphLink[] = []
 
-  for (const tx of raw.transactions ?? []) {
+  for (const tx of (Array.isArray(raw?.transactions) ? raw.transactions : [])) {
     // Ajouter / mettre à jour les nœuds
     for (const addr of [tx.from, tx.to]) {
       if (!nodesMap.has(addr)) {
@@ -67,8 +67,8 @@ export function useMoneyFlow(collection: string, period = '7d') {
 }
 
 function transformToSankey(raw: any): { nodes: FlowNode[]; links: FlowLink[] } {
-  const nodes: FlowNode[] = raw.nodes ?? []
-  const links: FlowLink[] = (raw.links ?? []).map((l: any) => ({
+  const nodes: FlowNode[] = Array.isArray(raw?.nodes) ? raw.nodes : []
+  const links: FlowLink[] = (Array.isArray(raw?.links) ? raw.links : []).map((l: any) => ({
     source: typeof l.source === 'number' ? l.source : nodes.findIndex(n => n.id === l.source),
     target: typeof l.target === 'number' ? l.target : nodes.findIndex(n => n.id === l.target),
     value:  l.value_eth,
@@ -94,7 +94,7 @@ export function useWalletClusters(collection?: string) {
 }
 
 function transformToClusters(raw: any): ClusterNode[] {
-  return (raw.wallets ?? []).map((w: any) => ({
+  return (Array.isArray(raw?.wallets) ? raw.wallets : []).map((w: any) => ({
     id:       w.address,
     label:    w.ens_name ?? w.address.slice(0, 8) + '...',
     type:     w.labels?.[0] ?? 'regular',

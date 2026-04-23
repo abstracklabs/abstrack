@@ -48,7 +48,8 @@ export function useLiveSales(collection?: string, maxItems = 50) {
       }
       // Batch : dépacker et insérer tout
       if (msg.type === 'batch') {
-        const newSales = (msg as any).events
+        const events = Array.isArray((msg as any).events) ? (msg as any).events : []
+        const newSales = events
           .filter((e: WSServerMessage) => e.type === 'sale')
           .map((e: Extract<WSServerMessage, { type: 'sale' }>) => e.data)
         if (newSales.length) {
@@ -166,6 +167,7 @@ export function useAlphaFeed(maxItems = 30) {
         setEvents(prev => {
           // Merge + dédup par (type, collection, ts) + tri par score
           const incoming = (msg as Extract<WSServerMessage, { type: 'alpha_events' }>).events
+          if (!Array.isArray(incoming)) return prev
           const combined = [...incoming, ...prev]
           const seen     = new Set<string>()
           const deduped  = combined.filter(e => {

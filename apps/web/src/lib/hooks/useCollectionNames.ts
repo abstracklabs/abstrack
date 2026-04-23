@@ -25,7 +25,7 @@ export function useCollectionNames() {
   })
 
   const nameMap = new Map<string, string>()
-  if (data) {
+  if (Array.isArray(data)) {
     for (const c of data) {
       if (c.address && c.name) {
         nameMap.set(c.address.toLowerCase(), c.name)
