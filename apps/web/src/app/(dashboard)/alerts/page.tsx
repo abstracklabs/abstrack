@@ -10,8 +10,8 @@ const API = process.env.NEXT_PUBLIC_API_URL
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type AlertType = 'whale_buy' | 'volume_explosion' | 'trending_mint'
-type Channel   = 'web' | 'discord' | 'email'
+type AlertType = 'whale_buy' | 'volume_spike' | 'floor_drop'
+type Channel   = 'in_app' | 'discord' | 'email'
 
 interface AlertCondition {
   field:    string
@@ -19,15 +19,19 @@ interface AlertCondition {
   value:    number
 }
 
-interface UserAlert {
-  id:          string
-  name:        string
+interface AlertConditionBackend {
   type:        AlertType
   collection?: string
-  conditions:  AlertCondition[]
-  channels:    Channel[]
-  webhook_url?: string
-  active:      boolean
+  threshold?:  number
+}
+
+interface UserAlert {
+  id:             string
+  name:           string
+  condition:      AlertConditionBackend
+  channels:       Channel[]
+  active:         boolean
+  cooldown_s:     number
   last_triggered?: string
 }
 
@@ -51,10 +55,10 @@ const ALERT_TEMPLATES: Record<AlertType, {
       { value: 'price_eth', label: 'Purchase price', unit: 'ETH' },
     ],
   },
-  volume_explosion: {
-    label:       'Volume Explosion',
+  volume_spike: {
+    label:       'Volume Spike',
     icon:        '⚡',
-    description: 'Collection volume spikes vs 7-day average',
+    description: 'Collection volume spikes vs recent average',
     color:       'blue',
     defaultConditions: [{ field: 'volume_ratio_1h', operator: '>=', value: 3 }],
     conditionFields: [
@@ -62,14 +66,14 @@ const ALERT_TEMPLATES: Record<AlertType, {
       { value: 'volume_1h_eth',   label: 'Min 1h volume',    unit: 'ETH' },
     ],
   },
-  trending_mint: {
-    label:       'Trending Mint',
-    icon:        '🔥',
-    description: 'A new collection is minting rapidly with many unique buyers',
+  floor_drop: {
+    label:       'Floor Drop',
+    icon:        '📉',
+    description: 'Collection floor price drops below a threshold',
     color:       'green',
-    defaultConditions: [{ field: 'trending_score', operator: '>=', value: 2 }],
+    defaultConditions: [{ field: 'floor_eth', operator: '<=', value: 0.1 }],
     conditionFields: [
-      { value: 'trending_score', label: 'Trending score',  unit: 'pts' },
+      { value: 'floor_eth', label: 'Floor price', unit: 'ETH' },
     ],
   },
 }
@@ -197,7 +201,7 @@ function AlertCard({
   onDelete: () => void
   onToggle: (active: boolean) => void
 }) {
-  const tmpl   = ALERT_TEMPLATES[alert.type]
+  const tmpl   = ALERT_TEMPLATES[alert.condition.type]
   const colors = COLOR_CLASSES[tmpl.color as keyof typeof COLOR_CLASSES]
 
   return (
@@ -226,15 +230,15 @@ function AlertCard({
             )}
           </div>
 
-          {/* Conditions */}
+          {/* Condition */}
           <div className="flex flex-wrap gap-2 mb-2">
-            {alert.conditions.map((c, i) => (
-              <span key={i} className="text-xs font-mono text-[var(--text-muted)] glass rounded px-2 py-0.5">
-                {c.field} {c.operator} {c.value}
+            {alert.condition.threshold != null && (
+              <span className="text-xs font-mono text-[var(--text-muted)] glass rounded px-2 py-0.5">
+                threshold ≥ {alert.condition.threshold}
               </span>
-            ))}
-            {alert.collection && (
-              <CollectionNameBadge address={alert.collection} />
+            )}
+            {alert.condition.collection && (
+              <CollectionNameBadge address={alert.condition.collection} />
             )}
           </div>
 
@@ -287,7 +291,7 @@ function CreateAlertModal({ onClose, onCreated }: { onClose: () => void; onCreat
   const [name, setName]           = useState('')
   const [collection, setCollection] = useState('')
   const [conditions, setConditions] = useState<AlertCondition[]>([])
-  const [channels, setChannels]   = useState<Channel[]>(['web'])
+  const [channels, setChannels]   = useState<Channel[]>(['in_app'])
   const [webhookUrl, setWebhookUrl] = useState('')
   const [loading, setLoading]     = useState(false)
   const [error, setError]         = useState('')
@@ -317,11 +321,12 @@ function CreateAlertModal({ onClose, onCreated }: { onClose: () => void; onCreat
         credentials: 'include',
         body: JSON.stringify({
           name,
-          type:        alertType,
-          collection:  collection || undefined,
-          conditions,
+          condition: {
+            type:       alertType,
+            collection: collection || undefined,
+            threshold:  conditions[0]?.value,
+          },
           channels,
-          webhook_url: webhookUrl || undefined,
         }),
       })
       if (!res.ok) throw new Error((await res.json()).error ?? 'Unknown error')
@@ -384,7 +389,7 @@ function CreateAlertModal({ onClose, onCreated }: { onClose: () => void; onCreat
                 />
               </div>
 
-              {alertType !== 'trending_mint' && (
+              {alertType !== 'floor_drop' && (
                 <div>
                   <label className="block text-xs text-[var(--text-muted)] mb-1.5">
                     Collection address <span className="opacity-50">(optional — leave empty for all)</span>
@@ -417,7 +422,7 @@ function CreateAlertModal({ onClose, onCreated }: { onClose: () => void; onCreat
               <div>
                 <label className="block text-xs text-[var(--text-muted)] mb-2">Channels</label>
                 <div className="flex gap-2">
-                  {(['web', 'discord', 'email'] as Channel[]).map(ch => (
+                  {(['in_app', 'discord', 'email'] as Channel[]).map(ch => (
                     <button
                       key={ch}
                       onClick={() => toggleChannel(ch)}
@@ -429,7 +434,7 @@ function CreateAlertModal({ onClose, onCreated }: { onClose: () => void; onCreat
                         }
                       `}
                     >
-                      <span className="mr-1">{ch === 'web' ? '🌐' : ch === 'discord' ? '💬' : '📧'}</span>
+                      <span className="mr-1">{ch === 'in_app' ? '🌐' : ch === 'discord' ? '💬' : '📧'}</span>
                       {ch}
                     </button>
                   ))}
@@ -527,7 +532,7 @@ function ConditionEditor({
 // ─── Helpers UI ───────────────────────────────────────────────────────────────
 
 function ChannelBadge({ channel }: { channel: Channel }) {
-  const icons: Record<Channel, string> = { web: '🌐', discord: '💬', email: '📧' }
+  const icons: Record<Channel, string> = { in_app: '🌐', discord: '💬', email: '📧' }
   return (
     <span className="text-[10px] px-1.5 py-0.5 glass rounded border border-[var(--border)] text-[var(--text-muted)]">
       {icons[channel]} {channel}
@@ -546,7 +551,7 @@ function CollectionNameBadge({ address }: { address: string }) {
 
 function TriggerRow({ trigger }: { trigger: any }) {
   const event = trigger.event ?? {}
-  const icon  = event.type === 'whale_buy' ? '🐋' : event.type === 'volume_explosion' ? '⚡' : '🔥'
+  const icon  = event.type === 'whale_buy' ? '🐋' : event.type === 'volume_spike' ? '⚡' : '📉'
   const { getCollectionName } = useCollectionNames()
   return (
     <div className="flex items-center gap-3 py-1.5">
@@ -555,9 +560,9 @@ function TriggerRow({ trigger }: { trigger: any }) {
         <p className="text-xs text-white truncate">
           {event.type === 'whale_buy'
             ? `${event.buyer?.slice(0, 8)}… bought ${event.price_eth?.toFixed(2)} ETH`
-            : event.type === 'volume_explosion'
+            : event.type === 'volume_spike'
             ? `Volume ×${event.ratio?.toFixed(1)} on ${getCollectionName(event.collection)}`
-            : `Trending mint — score ${event.trending_score?.toFixed(1)}`
+            : `Floor drop — ${event.floor_eth?.toFixed(3)} ETH on ${getCollectionName(event.collection)}`
           }
         </p>
       </div>

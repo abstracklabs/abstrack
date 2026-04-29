@@ -79,7 +79,7 @@ async function _queryWhales() {
   )
 
   return rows.map(r => ({
-    type:            r.price_eth >= WHALE_ETH * 5 ? 'whale_buy' : 'whale_buy' as const,
+    type:            (r.price_eth >= WHALE_ETH * 5 ? 'whale_sell' : 'whale_buy') as const,
     score:           _whaleScore(r.price_eth),
     ts:              r.block_ts,
     collection:      r.collection_addr,

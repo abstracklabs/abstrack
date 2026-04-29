@@ -18,7 +18,8 @@ export function useTransactionGraph(address: string, depth = 2) {
       const raw = await apiFetch<any>(`${API}/api/v1/wallets/${address}/graph?depth=${depth}&limit=200`)
       return transformToGraph(raw)
     },
-    staleTime:      60_000,
+    staleTime:       60_000,
+    retry:           false,
     placeholderData: { nodes: [], links: [] },
   })
 }
@@ -61,7 +62,8 @@ export function useMoneyFlow(collection: string, period = '7d') {
       const raw = await apiFetch<any>(`${API}/api/v1/collections/${collection}/flow?period=${period}`)
       return transformToSankey(raw)
     },
-    staleTime: 120_000,
+    staleTime:       120_000,
+    retry:           false,
     placeholderData: { nodes: [], links: [] },
   })
 }
@@ -88,7 +90,8 @@ export function useWalletClusters(collection?: string) {
       const raw = await apiFetch<any>(url)
       return transformToClusters(raw)
     },
-    staleTime: 300_000,
+    staleTime:       300_000,
+    retry:           false,
     placeholderData: [],
   })
 }

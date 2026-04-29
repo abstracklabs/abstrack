@@ -70,14 +70,14 @@ function PersonalAlertToasts() {
           variant = 'whale'
           title   = `🐋 ${String(ev.tier ?? 'Whale').replace(/_/g, ' ')}`
           body    = `${String(ev.buyer ?? '').slice(0, 8)}… · ${Number(ev.price_eth ?? 0).toFixed(2)} ETH`
-        } else if (type === 'volume_explosion') {
+        } else if (type === 'volume_spike') {
           variant = 'volume'
           title   = `⚡ Volume ×${Number(ev.ratio ?? 0).toFixed(1)}`
           body    = `${String(ev.collection ?? '').slice(0, 12)}… · ${Number(ev.volume_1h_eth ?? 0).toFixed(2)} ETH/h`
-        } else if (type === 'trending_mint') {
+        } else if (type === 'floor_drop') {
           variant = 'mint'
-          title   = `🔥 Trending Mint`
-          body    = `${Number(ev.mint_velocity ?? 0)} mints/h · ${Number(ev.unique_buyers ?? 0)} buyers`
+          title   = `📉 Floor Drop`
+          body    = `${String(ev.collection ?? '').slice(0, 12)}… · −${Number(ev.drop_pct ?? 0).toFixed(1)}%`
         }
 
         return (

@@ -17,8 +17,9 @@ import type { WsManager } from '../ws/manager'
 
 const log = childLogger('live-sales')
 
-const POLL_INTERVAL_MS = 2_000   // 2s — cadencé sur les blocs Abstract (~2s)
-const BACKFILL_WINDOW  = 5_000   // au démarrage : récupère les 5 dernières secondes
+const POLL_INTERVAL_MS = 2_000
+const BACKFILL_WINDOW  = 5_000
+const WHALE_ETH        = Number(process.env.ALPHA_WHALE_ETH ?? 5)
 
 interface SaleRow {
   tx_hash:         string
@@ -71,14 +72,24 @@ export function startLiveSalesBroadcaster(ws: WsManager) {
             priceEth:   Number(row.price_eth),
             priceUsd:   row.price_usd ? Number(row.price_usd) : null,
             marketplace: row.marketplace,
-            ts:         new Date(row.block_ts).getTime(),
-            collection: row.collection_addr,
+            timestamp:      new Date(row.block_ts).getTime(),
+            collection:     row.collection_addr,
             collectionName: row.collection_name,
           },
         }
 
         ws.broadcast(`collection:${row.collection_addr}`, payload)
         ws.broadcast('global', payload)
+
+        if (Number(row.price_eth) >= WHALE_ETH) {
+          ws.broadcast('whale', {
+            type:       'whale_alert',
+            wallet:     row.buyer,
+            tier:       Number(row.price_eth) >= WHALE_ETH * 5 ? 'mega' : 'whale',
+            collection: row.collection_addr,
+            amountUsd:  row.price_usd ? Number(row.price_usd) : 0,
+          })
+        }
       }
 
       // Avance le curseur au-delà des ventes envoyées

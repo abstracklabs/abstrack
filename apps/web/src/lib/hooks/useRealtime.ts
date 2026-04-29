@@ -147,7 +147,7 @@ export function usePersonalAlerts(userId: string | null) {
         addAlert({
           alertId:     msg.alertId,
           triggeredAt: Date.now(),
-          event:       msg.event,
+          event:       (msg as any).data,
         })
       }
     })

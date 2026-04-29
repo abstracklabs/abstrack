@@ -1,24 +1,25 @@
 // Types partagés frontend (mirror de @abstrack/types)
 
 export interface SaleData {
-  txHash:      string
-  collection:  string
-  tokenId:     number
-  priceEth:    number
-  priceUsd:    number
-  buyer:       string
-  seller:      string
-  marketplace: string
-  timestamp:   number
+  txHash:          string
+  collection:      string
+  collectionName:  string | null
+  tokenId:         string
+  priceEth:        number
+  priceUsd:        number | null
+  buyer:           string
+  seller:          string
+  marketplace:     string | null
+  timestamp:       number
 }
 
 export interface WalletActivityData {
   wallet:      string
   action:      'buy' | 'sell' | 'transfer' | 'mint'
   collection:  string
-  tokenId:     number
+  tokenId:     string
   valueEth:    number
-  valueUsd:    number
+  valueUsd:    number | null
   timestamp:   number
 }
 
@@ -110,7 +111,7 @@ export type WSServerMessage =
   | { type: 'wallet_activity'; data: WalletActivityData }
   | { type: 'floor_update';    collection: string; floorEth: number; changePct: number }
   | { type: 'whale_alert';     wallet: string; tier: string; collection: string; amountUsd: number }
-  | { type: 'alert_trigger';   alertId: string; event: Record<string, unknown> }
+  | { type: 'alert_trigger';   alertId: string; data: Record<string, unknown>; ts: number }
   | { type: 'alpha_events';    events: AlphaEvent[]; ts: number }
   | { type: 'batch';           events: WSServerMessage[]; count: number }
   | { type: 'pong';            ts: number }
