@@ -1,12 +1,19 @@
 version: '3.9'
 
 # ═══════════════════════════════════════════════════════════════
-# Abstrack MVP — 3 conteneurs
-# Usage dev  : docker compose up
-# Usage prod : docker compose --env-file .env up -d
+# Abstrack — Stack complet (PostgreSQL + Backend + Indexer + Web)
+#
+# Usage local :
+#   docker compose up --build
+#   → Ouvre http://localhost:3000
+#
+# Pour dev frontend avec hot-reload :
+#   docker compose up postgres backend indexer   (infrastructure)
+#   cd apps/web && npm run dev                   (frontend séparé)
 # ═══════════════════════════════════════════════════════════════
 
 services:
+
   postgres:
     image: postgres:16-alpine
     restart: unless-stopped
@@ -16,7 +23,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
     volumes:
       - pgdata:/var/lib/postgresql/data
-      - ./database/migrations:/docker-entrypoint-initdb.d:ro
+      - ./database/migrations/000_full_schema.sql:/docker-entrypoint-initdb.d/000_full_schema.sql:ro
     ports:
       - "5432:5432"
     healthcheck:
@@ -27,19 +34,19 @@ services:
 
   backend:
     build:
-      context:    ./backend
-      dockerfile: Dockerfile
+      context:    .
+      dockerfile: backend/Dockerfile.railway
     restart: unless-stopped
     depends_on:
       postgres:
         condition: service_healthy
     environment:
       DATABASE_URL: postgresql://abstrack:${POSTGRES_PASSWORD:-changeme}@postgres:5432/abstrack
-      JWT_SECRET:   ${JWT_SECRET:?JWT_SECRET is required}
-      ADMIN_SECRET: ${ADMIN_SECRET:?ADMIN_SECRET is required}
+      JWT_SECRET:   ${JWT_SECRET:?JWT_SECRET requis — voir .env}
+      ADMIN_SECRET: ${ADMIN_SECRET:?ADMIN_SECRET requis — voir .env}
       CORS_ORIGIN:  ${CORS_ORIGIN:-http://localhost:3000}
       PORT:         3001
-      NODE_ENV:     ${NODE_ENV:-production}
+      NODE_ENV:     production
       LOG_LEVEL:    ${LOG_LEVEL:-info}
       ALPHA_WHALE_ETH:   ${ALPHA_WHALE_ETH:-5}
       ALPHA_BURST_SALES: ${ALPHA_BURST_SALES:-10}
@@ -49,7 +56,7 @@ services:
       test:     ["CMD", "node", "-e", "require('http').get('http://localhost:3001/healthz',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
       interval: 15s
       timeout:  5s
-      retries:  3
+      retries:  5
 
   indexer:
     build:
@@ -61,10 +68,30 @@ services:
         condition: service_healthy
     environment:
       DATABASE_URL:      postgresql://abstrack:${POSTGRES_PASSWORD:-changeme}@postgres:5432/abstrack
-      ABSTRACT_RPC_WSS:  ${ABSTRACT_RPC_WSS:?ABSTRACT_RPC_WSS is required}
-      ABSTRACT_RPC_HTTP: ${ABSTRACT_RPC_HTTP:?ABSTRACT_RPC_HTTP is required}
-      LOG_FORMAT:        ${LOG_FORMAT:-json}
+      ABSTRACT_RPC_WSS:  ${ABSTRACT_RPC_WSS:-wss://api.mainnet.abs.xyz/ws}
+      ABSTRACT_RPC_HTTP: ${ABSTRACT_RPC_HTTP:-https://api.mainnet.abs.xyz}
+      LOG_FORMAT:        ${LOG_FORMAT:-text}
       LOG_LEVEL:         ${LOG_LEVEL:-info}
+
+  web:
+    build:
+      context:    ./apps/web
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL:  ${NEXT_PUBLIC_API_URL:-http://localhost:3001}
+        NEXT_PUBLIC_WS_URL:   ${NEXT_PUBLIC_WS_URL:-ws://localhost:3001/ws}
+        NEXT_PUBLIC_CHAIN_ID: "2741"
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
+    healthcheck:
+      test:     ["CMD", "node", "-e", "require('http').get('http://localhost:3000',r=>process.exit(r.statusCode<500?0:1)).on('error',()=>process.exit(1))"]
+      interval: 15s
+      timeout:  5s
+      retries:  5
 
 volumes:
   pgdata:

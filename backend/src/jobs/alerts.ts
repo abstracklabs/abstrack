@@ -10,6 +10,7 @@
 
 import cron from 'node-cron'
 import { db } from '../db/client'
+import { withCache } from '../lib/cache'
 import { childLogger } from '../lib/logger'
 import type { WsManager } from '../ws/manager'
 
@@ -43,15 +44,16 @@ async function runAlertChecks(ws: WsManager) {
     WHERE active = true
   `)
 
-  for (const alert of alerts) {
-    // Respect du cooldown
+  // Process all alerts in parallel — each check is an independent DB query.
+  // Concurrency is bounded naturally by the pg pool (max 10 connections).
+  await Promise.all(alerts.map(async (alert) => {
     if (alert.last_triggered) {
       const elapsed = (Date.now() - alert.last_triggered.getTime()) / 1000
-      if (elapsed < alert.cooldown_s) continue
+      if (elapsed < alert.cooldown_s) return
     }
 
     const triggered = await checkAlert(alert.condition)
-    if (!triggered) continue
+    if (!triggered) return
 
     await db.query(
       `INSERT INTO alert_triggers (alert_id, event_data) VALUES ($1, $2)`,
@@ -79,7 +81,7 @@ async function runAlertChecks(ws: WsManager) {
       data:    triggered,
       ts:      Date.now(),
     })
-  }
+  }))
 }
 
 async function checkAlert(condition: AlertCondition): Promise<object | null> {
@@ -113,16 +115,21 @@ async function checkAlert(condition: AlertCondition): Promise<object | null> {
     }
 
     case 'volume_spike': {
-      // Volume 1h sur une collection > threshold ETH
+      // Cache the 1h volume per collection for 5 minutes — the SUM scan over
+      // nft_sales is expensive and would run every 30s per active alert otherwise.
+      // Multiple alerts on the same collection share one cached result per window.
       if (!condition.collection) return null
-      const row = await db.queryOne<{ vol: string }>(
-        `SELECT SUM(price_eth)::text AS vol
-         FROM nft_sales
-         WHERE collection_addr = $1
-           AND block_ts > now() - INTERVAL '1 hour'`,
-        [condition.collection.toLowerCase()]
-      )
-      const vol = parseFloat(row?.vol ?? '0')
+      const coll = condition.collection.toLowerCase()
+      const vol = await withCache(`alert:vol1h:${coll}`, 300_000, async () => {
+        const row = await db.queryOne<{ vol: string }>(
+          `SELECT COALESCE(SUM(price_eth), 0)::text AS vol
+           FROM nft_sales
+           WHERE collection_addr = $1
+             AND block_ts > now() - INTERVAL '1 hour'`,
+          [coll]
+        )
+        return parseFloat(row?.vol ?? '0')
+      })
       return vol >= threshold
         ? { type: 'volume_spike', collection: condition.collection, volume_1h_eth: vol }
         : null

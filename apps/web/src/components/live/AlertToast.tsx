@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useAlertsStore }   from '../../store/alerts'
 import { useWhaleAlerts }   from '../../lib/hooks/useRealtime'
+import { socket }           from '../../lib/socket'
 
 // ─── Toast container (à placer dans le layout root) ──────────────────────────
 
@@ -162,9 +163,9 @@ export function ConnectionStatus() {
   const [connected, setConnected] = useState(false)
 
   useEffect(() => {
-    // Vérifier la connexion toutes les 5s
+    setConnected(socket.isConnected)
     const check = setInterval(() => {
-      setConnected((socket as any).isConnected ?? false)
+      setConnected(socket.isConnected)
     }, 5_000)
     return () => clearInterval(check)
   }, [])
@@ -185,6 +186,3 @@ function truncate(address: string): string {
   if (!address || address.length < 10) return address ?? '?'
   return `${address.slice(0, 6)}...${address.slice(-4)}`
 }
-
-// Import manquant résolu ici
-import { socket } from '../../lib/socket'

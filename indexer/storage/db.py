@@ -434,20 +434,17 @@ class Database:
 
         async def _do():
             async with self._pool.acquire() as conn:
-                inserted = 0
-                for p in prices:
-                    result = await conn.execute(
-                        """
-                        INSERT INTO eth_price_history (date, price_usd)
-                        VALUES ($1, $2)
-                        ON CONFLICT (date) DO UPDATE
-                          SET price_usd = EXCLUDED.price_usd, updated_at = now()
-                        """,
-                        p["date"], p["price_usd"],
-                    )
-                    if result == "INSERT 0 1":
-                        inserted += 1
-                return inserted
+                rows = [(p["date"], p["price_usd"]) for p in prices]
+                await conn.executemany(
+                    """
+                    INSERT INTO eth_price_history (date, price_usd)
+                    VALUES ($1, $2)
+                    ON CONFLICT (date) DO UPDATE
+                      SET price_usd = EXCLUDED.price_usd, updated_at = now()
+                    """,
+                    rows,
+                )
+                return len(rows)
 
         try:
             return await _with_retry(_do) or 0

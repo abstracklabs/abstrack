@@ -53,7 +53,9 @@ async def ensure_eth_price_history(db, http_session: aiohttp.ClientSession) -> i
             f"~{(today - from_dt.date()).days} days)"
         )
 
-        daily = await _fetch_via_binance(http_session, from_dt)
+        daily = await _fetch_via_coingecko(http_session, from_dt)
+        if not daily:
+            daily = await _fetch_via_binance(http_session, from_dt)
 
         if not daily:
             logger.warning("All price sources failed — price_usd will be NULL for historical sales")

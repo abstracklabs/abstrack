@@ -58,14 +58,22 @@ export async function walletsRoutes(app: FastifyInstance) {
     const limit   = Math.min(Number(req.query.limit) || 50, 200)
     const { before_ts, before_id } = req.query
 
+    // UNION ALL lets PostgreSQL use the index on `buyer` and the index on `seller`
+    // independently, then merge-sort — far faster than bitmap-OR on a large table.
     if (before_ts && before_id) {
       return db.query(
         `SELECT id, tx_hash, collection_addr, token_id, price_eth, price_usd,
-                block_ts, marketplace,
-                CASE WHEN buyer = $1 THEN 'buy' ELSE 'sell' END AS side
-         FROM nft_sales
-         WHERE (buyer = $1 OR seller = $1)
-           AND (block_ts, id) < ($2::timestamptz, $3::uuid)
+                block_ts, marketplace, side
+         FROM (
+           SELECT id, tx_hash, collection_addr, token_id, price_eth, price_usd,
+                  block_ts, marketplace, 'buy' AS side
+           FROM nft_sales WHERE buyer = $1
+           UNION ALL
+           SELECT id, tx_hash, collection_addr, token_id, price_eth, price_usd,
+                  block_ts, marketplace, 'sell' AS side
+           FROM nft_sales WHERE seller = $1
+         ) combined
+         WHERE (block_ts, id) < ($2::timestamptz, $3::uuid)
          ORDER BY block_ts DESC, id DESC
          LIMIT $4`,
         [address, before_ts, before_id, limit]
@@ -74,10 +82,16 @@ export async function walletsRoutes(app: FastifyInstance) {
 
     return db.query(
       `SELECT id, tx_hash, collection_addr, token_id, price_eth, price_usd,
-              block_ts, marketplace,
-              CASE WHEN buyer = $1 THEN 'buy' ELSE 'sell' END AS side
-       FROM nft_sales
-       WHERE buyer = $1 OR seller = $1
+              block_ts, marketplace, side
+       FROM (
+         SELECT id, tx_hash, collection_addr, token_id, price_eth, price_usd,
+                block_ts, marketplace, 'buy' AS side
+         FROM nft_sales WHERE buyer = $1
+         UNION ALL
+         SELECT id, tx_hash, collection_addr, token_id, price_eth, price_usd,
+                block_ts, marketplace, 'sell' AS side
+         FROM nft_sales WHERE seller = $1
+       ) combined
        ORDER BY block_ts DESC, id DESC
        LIMIT $2`,
       [address, limit]
